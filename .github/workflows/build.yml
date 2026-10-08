@@ -21,6 +21,7 @@ name: Build
 # gives the latest build; the last five are kept.
 on:
   push:
+    branches: [main]
     paths-ignore:
       - "**.md"
   workflow_dispatch:
