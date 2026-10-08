@@ -13,17 +13,6 @@ on:
       - "patches/**"
       - "tools/**"
       - "UWP/**"
-  workflow_dispatch:
-    inputs:
-      upstream_tag:
-        description: "OpenCE release tag; blank selects the latest build-* tag"
-        required: false
-        default: ""
-      publish:
-        description: "Publish the completed package as a GitHub release"
-        required: true
-        type: boolean
-        default: false
 permissions:
   contents: write
 
@@ -52,10 +41,9 @@ jobs:
         id: release
         shell: pwsh
         env:
-          REQUESTED_TAG: ${{ inputs.upstream_tag }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          $release = .\tools\resolve_uwp_release.ps1 -Tag $env:REQUESTED_TAG | ConvertFrom-Json
+          $release = .\tools\resolve_uwp_release.ps1 | ConvertFrom-Json
           $releaseTag = "uwp-$($release.Tag)"
           $headers = @{
               Accept = 'application/vnd.github+json'
