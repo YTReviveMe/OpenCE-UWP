@@ -2,6 +2,8 @@ name: UWP Next Release
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
 
 permissions:
   contents: write
@@ -16,5 +18,5 @@ jobs:
     with:
       publish: true
       minimum_build: 148
-      one_shot: true
+      one_shot: false
     secrets: inherit
