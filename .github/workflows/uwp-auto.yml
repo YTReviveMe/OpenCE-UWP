@@ -208,6 +208,7 @@ jobs:
               $tail
               '```'
           ) | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          if ($tail.Length -gt 3500) { $tail = $tail.Substring($tail.Length - 3500) }
           $annotation = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
           Write-Host "::error file=.github/workflows/uwp-auto.yml,line=154,title=UWP build failed::$annotation"
           exit 1
