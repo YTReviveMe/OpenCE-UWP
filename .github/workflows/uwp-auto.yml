@@ -32,6 +32,10 @@ concurrency:
 env:
   UWP_DEPS_REPOSITORY: https://github.com/worleydl/uwp-dep.git
   UWP_DEPS_COMMIT: 3960693ee292522a5bcb58bc7d4136a0bb8864af
+  GL_HEADERS_REPOSITORY: https://github.com/KhronosGroup/OpenGL-Registry.git
+  GL_HEADERS_COMMIT: 6af574a14089ccfee87efe230ebcdd8742859813
+  EGL_HEADERS_REPOSITORY: https://github.com/KhronosGroup/EGL-Registry.git
+  EGL_HEADERS_COMMIT: db3425b8246136faccb5e2782b5694960bd6edf1
 
 jobs:
   build:
@@ -97,6 +101,24 @@ jobs:
               throw 'Unexpected UWP dependency revision.'
           }
 
+      - name: Fetch GLES headers
+        if: steps.gate.outputs.build == 'true'
+        shell: pwsh
+        run: |
+          git clone --filter=blob:none --no-checkout $env:GL_HEADERS_REPOSITORY gl-headers
+          git -C gl-headers sparse-checkout set api/GLES2 api/GLES3
+          git -C gl-headers checkout --detach $env:GL_HEADERS_COMMIT
+          if ((git -C gl-headers rev-parse HEAD) -ne $env:GL_HEADERS_COMMIT) {
+              throw 'Unexpected OpenGL header revision.'
+          }
+          git clone --filter=blob:none --no-checkout $env:EGL_HEADERS_REPOSITORY egl-headers
+          git -C egl-headers sparse-checkout set api/KHR
+          git -C egl-headers checkout --detach $env:EGL_HEADERS_COMMIT
+          if ((git -C egl-headers rev-parse HEAD) -ne $env:EGL_HEADERS_COMMIT) {
+              throw 'Unexpected EGL header revision.'
+          }
+          Copy-Item -Recurse egl-headers\api\KHR gl-headers\api\KHR
+
       - name: Prepare OpenCE source
         if: steps.gate.outputs.build == 'true'
         shell: pwsh
@@ -115,6 +137,8 @@ jobs:
       - name: Build UWP
         if: steps.gate.outputs.build == 'true'
         shell: pwsh
+        env:
+          HALO_XBOX_GLES_INCLUDE: ${{ github.workspace }}\gl-headers\api
         run: |
           $log = Join-Path $env:RUNNER_TEMP 'uwp-build.log'
           & pwsh -NoProfile -File .\tools\build.ps1 `
