@@ -1,13 +1,7 @@
 name: UWP Next Release
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/uwp-next-release.yml"
   workflow_dispatch:
-  schedule:
-    - cron: "23 */6 * * *"
 
 permissions:
   contents: write
