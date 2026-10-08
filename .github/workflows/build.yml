@@ -23,6 +23,7 @@ on:
   push:
     paths-ignore:
       - "**.md"
+      - ".github/workflows/uwp-next-release.yml"
   workflow_dispatch:
 
 concurrency:
