@@ -1,20 +1,6 @@
 name: UWP Auto
 
 on:
-  workflow_call:
-    inputs:
-      upstream_tag:
-        type: string
-        default: ""
-      publish:
-        type: boolean
-        default: false
-      minimum_build:
-        type: number
-        default: 0
-      one_shot:
-        type: boolean
-        default: false
   push:
     branches: [UWP-Auto]
     paths:
@@ -78,31 +64,21 @@ jobs:
           $response = Invoke-WebRequest -Uri $uri -Headers $headers -SkipHttpErrorCheck
           if ($response.StatusCode -notin 200, 404) { throw "GitHub release check failed: $($response.StatusCode)" }
           $exists = $response.StatusCode -eq 200
-          $releasesUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases?per_page=100"
-          $releases = Invoke-RestMethod -Uri $releasesUri -Headers $headers
-          $complete = @($releases | Where-Object tag_name -Like 'uwp-build-*').Count -gt 0
           "tag=$($release.Tag)" | Out-File $env:GITHUB_OUTPUT -Append
           "commit=$($release.Commit)" | Out-File $env:GITHUB_OUTPUT -Append
           "build=$($release.Build)" | Out-File $env:GITHUB_OUTPUT -Append
           "version=$($release.Version)" | Out-File $env:GITHUB_OUTPUT -Append
           "release_tag=$releaseTag" | Out-File $env:GITHUB_OUTPUT -Append
           "exists=$($exists.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
-          "complete=$($complete.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
 
       - name: Check release gate
         id: gate
         shell: pwsh
         env:
           EXISTS: ${{ steps.release.outputs.exists }}
-          COMPLETE: ${{ steps.release.outputs.complete }}
         run: |
-          $automated = '${{ github.event_name }}' -in 'push', 'schedule', 'workflow_call'
-          $minimumBuild = [int]'${{ inputs.minimum_build }}'
-          $oneShot = '${{ inputs.one_shot }}' -eq 'true'
-          $buildNumber = [int]'${{ steps.release.outputs.build }}'
+          $automated = '${{ github.event_name }}' -in 'push', 'schedule'
           $build = -not ($automated -and $env:EXISTS -eq 'true')
-          if ($buildNumber -le $minimumBuild) { $build = $false }
-          if ($oneShot -and $env:COMPLETE -eq 'true') { $build = $false }
           "build=$($build.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
           if (-not $build) { Write-Output 'No unpublished OpenCE update is eligible.' }
 
@@ -274,7 +250,7 @@ jobs:
           $package = "$output\OpenCE-UWP-x64.appx"
           $certificate = "$output\OpenCE-UWP.cer"
           $archive = 'dist\OpenCE-UWP-${{ steps.release.outputs.version }}.zip'
-          $signing = if ('${{ steps.signing.outputs.persistent }}' -eq 'true') { 'persistent' } else { 'temporary test' }
+          $signing = if ('${{ steps.signing.outputs.persistent }}' -eq 'true') { 'persistent' } else { 'temporary' }
           & gh release create '${{ steps.release.outputs.release_tag }}' `
             $package $certificate $archive "$archive.sha256" `
             --repo $env:GITHUB_REPOSITORY `
