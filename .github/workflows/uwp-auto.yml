@@ -34,7 +34,7 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: "23 */6 * * *"
+    - cron: "*/10 * * * *"
 
 permissions:
   contents: write
