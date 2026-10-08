@@ -24,6 +24,15 @@ if ($LASTEXITCODE) { throw 'OpenCE UWP patch validation failed.' }
 & git -C $SourceDirectory apply $patch
 if ($LASTEXITCODE) { throw 'OpenCE UWP patch failed.' }
 
+$cacheFiles = Join-Path $SourceDirectory 'source\cache\cache_files.c'
+$cacheSource = Get-Content -LiteralPath $cacheFiles -Raw
+$powerupCall = '(?m)^([ \t]*)powerup_render_bounds_tags_loaded\(\);\r?$'
+if ($cacheSource -match $powerupCall) {
+    $newline = [Environment]::NewLine
+    $cacheSource = $cacheSource -replace $powerupCall, "#if !defined(HALO_XBOX_UWP)$newline`$1powerup_render_bounds_tags_loaded();$newline#endif"
+    [IO.File]::WriteAllText($cacheFiles, $cacheSource, [Text.UTF8Encoding]::new($false))
+}
+
 $portDestination = Join-Path $SourceDirectory 'port\xbox'
 New-Item -ItemType Directory -Path $portDestination -Force | Out-Null
 Copy-Item -Path (Join-Path $root 'UWP\xbox\*') -Destination $portDestination -Recurse -Force
