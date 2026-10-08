@@ -1,8 +1,9 @@
 name: UWP Next Release
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "5,15,25,35,45,55 * * * *"
 
 permissions:
   contents: write
