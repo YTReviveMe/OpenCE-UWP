@@ -115,7 +115,17 @@ jobs:
       - name: Build UWP
         if: steps.gate.outputs.build == 'true'
         shell: pwsh
-        run: .\tools\build.ps1 -UwpDeps "$env:GITHUB_WORKSPACE\uwp-deps"
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'uwp-build.log'
+          & pwsh -NoProfile -File .\tools\build.ps1 `
+              -UwpDeps "$env:GITHUB_WORKSPACE\uwp-deps" -Jobs 4 2>&1 |
+              Tee-Object -FilePath $log
+          if ($LASTEXITCODE) {
+              $tail = (Get-Content $log -Tail 30) -join "`n"
+              $tail = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Output "::error title=UWP build failed::$tail"
+              exit 1
+          }
 
       - name: Import signing certificate
         if: steps.gate.outputs.build == 'true'
