@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+ xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+ xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+ IgnorableNamespaces="uap mp">
+  <Identity Name="OpenCommunityEdition.Xbox" Publisher="CN=ReviveMe" Version="1.1.4.7" ProcessorArchitecture="x64" />
+  <mp:PhoneIdentity PhoneProductId="8abde025-e280-47bc-99d0-cddbf5d05baa" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
+  <Properties><DisplayName>OpenCE</DisplayName><PublisherDisplayName>ReviveMe</PublisherDisplayName><Logo>Assets\StoreLogo.png</Logo></Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+    <PackageDependency Name="Microsoft.VCLibs.140.00" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" MinVersion="14.0.0.0" />
+  </Dependencies>
+  <Resources><Resource Language="en-us" /></Resources>
+  <Applications><Application Id="App" Executable="OpenCE UWP.exe" EntryPoint="OpenCEUWP.App">
+    <uap:VisualElements DisplayName="OpenCE" Description="OpenCE UWP for Xbox Dev Mode"
+      BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png">
+      <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#101820" />
+    </uap:VisualElements>
+    <Extensions>
+      <uap:Extension Category="windows.fileTypeAssociation">
+        <uap:FileTypeAssociation Name="opence-game-data">
+          <uap:SupportedFileTypes>
+            <uap:FileType>.iso</uap:FileType>
+            <uap:FileType>.xiso</uap:FileType>
+            <uap:FileType>.map</uap:FileType>
+          </uap:SupportedFileTypes>
+        </uap:FileTypeAssociation>
+      </uap:Extension>
+    </Extensions>
+  </Application></Applications>
+  <Capabilities><Capability Name="internetClientServer"/><Capability Name="privateNetworkClientServer"/>
+    <Capability Name="codeGeneration"/><uap:Capability Name="removableStorage"/>
+  </Capabilities>
+</Package>

@@ -1,0 +1,2115 @@
+diff --git a/configure.py b/configure.py
+index 3bff193b..f9b0a393 100644
+--- a/configure.py
++++ b/configure.py
+@@ -14,6 +14,7 @@ from tools import ninja_syntax
+ from tools.android_build import android_configure_inputs, generate_android_build
+ from tools.linux_build import generate_linux_build, linux_configure_inputs
+ from tools.windows_build import generate_windows_build, windows_configure_inputs
++from tools.xbox_build import generate_xbox_build, xbox_configure_inputs
+ 
+ # arguments
+ parser = argparse.ArgumentParser()
+@@ -112,6 +113,7 @@ n.newline()
+ generate_linux_build(n, sln)
+ generate_android_build(n, sln)
+ generate_windows_build(n, sln)
++generate_xbox_build(n, sln)
+ 
+ n.comment("Reconfigure on change")
+ n.rule(
+@@ -129,6 +131,7 @@ n.build(
+         *linux_configure_inputs(),
+         *android_configure_inputs(),
+         *windows_configure_inputs(),
++        *xbox_configure_inputs(),
+     ],
+ )
+ n.newline()
+diff --git a/port/android/guest/guest.ld b/port/android/guest/guest.ld
+index d7dde6d8..1b7891c7 100644
+--- a/port/android/guest/guest.ld
++++ b/port/android/guest/guest.ld
+@@ -17,9 +17,11 @@ SECTIONS
+ 	.rodata : { *(.rodata .rodata.*) }
+ 	. = ALIGN(0x10000);
+ 	.data : { *(.data .data.*) }
++	.got : { *(.got .got.* .got.plt) }
+ 	.guest_init : {
+ 		__guest_init_start = .;
+ 		KEEP(*(.guest_init))
++		KEEP(*(.init_array .init_array.*))
+ 		__guest_init_end = .;
+ 	}
+ 	.bss : { *(.bss .bss.*) *(COMMON) }
+diff --git a/port/android/guest/libc/src_include/features.h b/port/android/guest/libc/src_include/features.h
+index 93d2e14c..08a16aa9 100644
+--- a/port/android/guest/libc/src_include/features.h
++++ b/port/android/guest/libc/src_include/features.h
+@@ -11,9 +11,14 @@ attributes, and its assembly is converted to ELF afterwards
+ #include_next "features.h"
+ 
+ #undef weak_alias
++#ifdef HALO_XBOX_UWP
++#define weak_alias(old, new) \
++	extern __typeof(old) new __attribute__((__weak__, __alias__(#old)))
++#else
+ #define weak_alias(old, new) \
+ 	extern __typeof(old) new; \
+ 	static void *const __guest_alias_##new __attribute__((used)) = (void *)&old; \
+ 	__asm__(".globl _" #new "\n.weak_definition _" #new "\n.set _" #new ", _" #old "\n")
++#endif
+ 
+ #endif
+diff --git a/port/android/guest/runtime/guest_host.h b/port/android/guest/runtime/guest_host.h
+index 5a9babaf..4639b3c1 100644
+--- a/port/android/guest/runtime/guest_host.h
++++ b/port/android/guest/runtime/guest_host.h
+@@ -27,6 +27,9 @@ void host_exit(int code) __attribute__((noreturn));
+ /* the host's errno on this thread, after a call to a host function */
+ int host_errno(void);
+ 
++int host_decompress_map(const char *source_path, const char *destination_path,
++	unsigned int decompressed_size, unsigned int destination_size);
++
+ /* ---------- threads
+ 
+ The guest's thread pointer (its struct pthread) is kept by the host for
+diff --git a/port/android/guest/runtime/guest_start.c b/port/android/guest/runtime/guest_start.c
+index e0beba77..c1bf936d 100644
+--- a/port/android/guest/runtime/guest_start.c
++++ b/port/android/guest/runtime/guest_start.c
+@@ -29,7 +29,11 @@ void __guest_thread_initialize_main(void);
+ 
+ extern char **__environ;
+ 
++#ifdef HALO_XBOX_UWP
++__attribute__((section(".guest_header"), used))
++#else
+ __attribute__((section("__TEXT,__guest_header"), used))
++#endif
+ const struct halo_guest_header __guest_header =
+ {
+ 	HALO_GUEST_MAGIC,
+@@ -50,7 +54,7 @@ extern int main(int argc, char **argv);
+ 
+ void __guest_start(const struct halo_guest_boot *boot)
+ {
+-	void (**constructor)(void);
++	uint32_t constructor, constructor_end;
+ 	int result;
+ 
+ 	libc.page_size = boot->page_size;
+@@ -58,8 +62,19 @@ void __guest_start(const struct halo_guest_boot *boot)
+ 	__environ = (char **)boot->environment;
+ 	__guest_thread_initialize_main();
+ 
+-	for (constructor = __guest_init_start; constructor < __guest_init_end; constructor++)
+-		(*constructor)();
++#ifdef HALO_XBOX_UWP
++	extern void platform_contiguous_initialize(void);
++	platform_contiguous_initialize();
++#else
++	constructor = (uint32_t)(uintptr_t)__guest_init_start;
++	constructor_end = (uint32_t)(uintptr_t)__guest_init_end;
++	while (constructor < constructor_end)
++	{
++		uint32_t function = *(const uint32_t *)(uintptr_t)constructor;
++		((void (*)(void))(uintptr_t)function)();
++		constructor += sizeof(uint32_t);
++	}
++#endif
+ 
+ 	result = main((int)boot->argc, (char **)boot->argv);
+ 	exit(result);
+diff --git a/port/android/guest/runtime/guest_thread.c b/port/android/guest/runtime/guest_thread.c
+index 56223a1a..d089a0c7 100644
+--- a/port/android/guest/runtime/guest_thread.c
++++ b/port/android/guest/runtime/guest_thread.c
+@@ -43,6 +43,7 @@ enum
+ 	_thread_exited,
+ };
+ 
++#undef DEFAULT_STACK_SIZE
+ #define DEFAULT_STACK_SIZE (1024 * 1024)
+ 
+ static struct guest_thread main_thread;
+diff --git a/port/android/include/halo_android_abi.h b/port/android/include/halo_android_abi.h
+index baa28789..5e661d16 100644
+--- a/port/android/include/halo_android_abi.h
++++ b/port/android/include/halo_android_abi.h
+@@ -28,7 +28,9 @@ This header is included by both halves.
+ 
+ /* the guest image is linked to run here, just above the Xbox window: ART
+ keeps its heaps low in the address space and fills it upwards */
++#ifndef HALO_GUEST_IMAGE_BASE
+ #define HALO_GUEST_IMAGE_BASE 0x88000000u
++#endif
+ 
+ /* the Xbox contiguous memory window (port/linux/src/platform.h) */
+ #define HALO_GUEST_WINDOW_BASE 0x80000000u
+diff --git a/port/linux/game/menu_functions.c b/port/linux/game/menu_functions.c
+index 2732aa8e..286e5bb1 100644
+--- a/port/linux/game/menu_functions.c
++++ b/port/linux/game/menu_functions.c
+@@ -753,6 +753,8 @@ static void campaign_levels_read(struct player_profile const *profile)
+ main_new_map, if its difficulty is this one) */
+ static void campaign_start(char const *map_name, short difficulty, short controller)
+ {
++	platform_log("campaign: starting %s at difficulty %d with controller %d",
++		map_name ? map_name : "(null)", difficulty, controller);
+ 	if (player_spawn_count < 2)
+ 		player_ui_set_single_player_local_player_controller(0, controller);
+ 	main_set_map_name(map_name);
+@@ -843,8 +845,16 @@ static boolean campaign_menu_initialize(short controller)
+ {
+ 	struct player_profile profile;
+ 
++	platform_log("campaign: opening menu with controller %d", controller);
+ 	if (campaign_profile(controller, &profile))
++	{
++		platform_log("campaign: active profile loaded");
+ 		campaign_levels_read(&profile);
++	}
++	else
++	{
++		platform_log("campaign: no profile is available");
++	}
+ 	return TRUE;
+ }
+ 
+@@ -1197,6 +1207,8 @@ static boolean difficulty_start(short difficulty, short controller)
+ 	struct player_profile profile;
+ 	char const *map_name = main_get_map_name();
+ 
++	platform_log("campaign: difficulty selected %d; pending map is %s",
++		difficulty, map_name ? map_name : "(null)");
+ 	if (!campaign_profile(controller, &profile))
+ 		return campaign_fail();
+ 	/* (a campaign level, or a Custom Edition campaign map) */
+@@ -3937,8 +3949,25 @@ static boolean profile_save_changes(struct widget_instance *widget, boolean *wid
+ {
+ 	if (player_ui_edit_profile_is_dirty())
+ 	{
++		long profile_index = player_ui_get_active_player_profile_index(0);
++		struct player_profile *editing = player_ui_get_edit_player_profile();
++		struct player_profile saved;
++		boolean have_saved_copy = editing != NULL;
++		short controller;
++
++		if (have_saved_copy)
++			saved = *editing;
+ 		if (player_ui_save_profile())
++		{
++			if (have_saved_copy && profile_index != NONE)
++			{
++				for (controller = 0; controller < 4; controller++)
++					if (player_ui_get_active_player_profile_index(controller) == profile_index)
++						player_ui_set_active_player_profile(controller, profile_index, &saved);
++				platform_log("menus: saved and refreshed player profile index %ld", profile_index);
++			}
+ 			return TRUE;
++		}
+ 		platform_log("menus: could not save the profile's changes");
+ 		return campaign_fail();
+ 	}
+diff --git a/port/linux/game/render_interpolation.c b/port/linux/game/render_interpolation.c
+index 8462295d..28525381 100644
+--- a/port/linux/game/render_interpolation.c
++++ b/port/linux/game/render_interpolation.c
+@@ -683,7 +683,7 @@ static struct observer_result const *render_interpolation_direct_camera(
+ 	short local_player_index,
+ 	struct observer_result const *observer)
+ {
+-#ifdef HALO_ANDROID
++#if defined(HALO_ANDROID) && !defined(HALO_UWP_PC)
+ 	(void)local_player_index;
+ 	return observer;
+ #else
+diff --git a/port/linux/src/d3d8_gl.c b/port/linux/src/d3d8_gl.c
+index b3343d34..bf415c9d 100644
+--- a/port/linux/src/d3d8_gl.c
++++ b/port/linux/src/d3d8_gl.c
+@@ -136,6 +136,7 @@ context exists */
+ static int anti_aliasing_value = -1;
+ static int anti_aliasing_samples;
+ static GLint anti_aliasing_maximum_samples, maximum_target_size;
++static BOOL anti_aliasing_multisample_failed;
+ 
+ static void anti_aliasing_prepare(void);
+ 
+@@ -169,7 +170,7 @@ static int anti_aliasing(void)
+ 
+ static void screen_mode_choose(long *width, float scale[2])
+ {
+-#ifdef HALO_ANDROID
++#if defined(HALO_ANDROID) && !defined(HALO_UWP_PC)
+ 	/* display.screen_width, or 0 for the display's shape, which the app
+ 	passes (port/android/host/host_main.c) */
+ 	const char *display = getenv("HALO_DISPLAY_WIDTH");
+@@ -1234,6 +1235,7 @@ static GLuint framebuffer_find(GLuint color, GLuint depth, BOOL renderbuffers)
+ {
+ 	struct framebuffer_entry *entry, **link;
+ 	GLenum draw_buffer = color ? GL_COLOR_ATTACHMENT0 : GL_NONE;
++	GLenum status;
+ 
+ 	/* (found, it moves to the front: each draw asks again for the one
+ 	the draw before it did) */
+@@ -1268,8 +1270,15 @@ static GLuint framebuffer_find(GLuint color, GLuint depth, BOOL renderbuffers)
+ 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
+ 	}
+ 	glDrawBuffers(1, &draw_buffer);
+-	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+-		platform_log("framebuffer %u/%u%s is incomplete", color, depth, renderbuffers ? " (multisampled)" : "");
++	glReadBuffer(draw_buffer);
++	status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
++	if (status != GL_FRAMEBUFFER_COMPLETE)
++	{
++		platform_log("framebuffer %u/%u%s is incomplete (0x%x)", color, depth,
++			renderbuffers ? " (multisampled)" : "", (unsigned int)status);
++		if (renderbuffers)
++			anti_aliasing_multisample_failed = TRUE;
++	}
+ 	xgpu_gl_state_invalidate();
+ 	entry->next = framebuffers;
+ 	framebuffers = entry;
+@@ -1370,6 +1379,43 @@ static void render_target_multisample(struct xgpu_render_target *target, int sam
+ 	xgpu_gl_state_invalidate();
+ }
+ 
++static BOOL multisample_supported(int samples)
++{
++	static GLuint color, depth, framebuffer;
++	GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
++	GLenum status;
++
++	while (glGetError() != GL_NO_ERROR)
++	{
++	}
++	if (!color)
++		glGenRenderbuffers(1, &color);
++	glBindRenderbuffer(GL_RENDERBUFFER, color);
++	glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, 1, 1);
++	if (!depth)
++		glGenRenderbuffers(1, &depth);
++	glBindRenderbuffer(GL_RENDERBUFFER, depth);
++	glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_DEPTH24_STENCIL8, 1, 1);
++	if (!framebuffer)
++		glGenFramebuffers(1, &framebuffer);
++	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
++	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, color);
++	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depth);
++	glDrawBuffers(1, &draw_buffer);
++	glReadBuffer(draw_buffer);
++	status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
++	if (glGetError() != GL_NO_ERROR)
++		status = 0;
++	glBindRenderbuffer(GL_RENDERBUFFER, 0);
++	xgpu_gl_state_invalidate();
++	return status == GL_FRAMEBUFFER_COMPLETE;
++}
++
++static int multisample_lower(int samples)
++{
++	return samples > 4 ? 4 : samples > 2 ? 2 : 0;
++}
++
+ /* counts draws and clears into render targets (xgpu_render_target.written) */
+ static unsigned long render_target_write_serial;
+ 
+@@ -1431,13 +1477,53 @@ static BOOL bind_targets(BOOL *has_depth)
+ 		render_target_multisample(&depth->target, samples);
+ 	if (samples)
+ 	{
+-		state_framebuffer(framebuffer_find(color ? color->target.multisample : 0,
+-			depth ? depth->target.multisample : 0, TRUE));
+-		if (color)
+-			color->target.unresolved = TRUE;
+-		if (depth)
+-			depth->target.unresolved = TRUE;
+-		target_samples = samples;
++		GLuint framebuffer = 0;
++
++		for (;;)
++		{
++			anti_aliasing_multisample_failed = FALSE;
++			if (color)
++				render_target_multisample(&color->target, samples);
++			if (depth)
++				render_target_multisample(&depth->target, samples);
++			framebuffer = framebuffer_find(color ? color->target.multisample : 0,
++				depth ? depth->target.multisample : 0, TRUE);
++			glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
++			if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
++				anti_aliasing_multisample_failed = TRUE;
++			if (!anti_aliasing_multisample_failed)
++				break;
++			int next = multisample_lower(samples);
++
++			platform_log("anti-aliasing: %dx MSAA failed at %lux%lu, trying %dx", samples,
++				color ? color->target.gl_width : depth->target.gl_width,
++				color ? color->target.gl_height : depth->target.gl_height, next);
++			samples = next;
++			anti_aliasing_samples = samples;
++			if (samples < 2)
++				break;
++		}
++
++		if (samples < 2)
++		{
++			platform_log("anti-aliasing: no compatible multisampled framebuffer, so MSAA is disabled");
++			if (color)
++				render_target_multisample(&color->target, 0);
++			if (depth)
++				render_target_multisample(&depth->target, 0);
++			state_framebuffer(framebuffer_get(color ? color->target.texture : 0,
++				depth ? depth->target.texture : 0));
++			target_samples = 1;
++		}
++		else
++		{
++			state_framebuffer(framebuffer);
++			if (color)
++				color->target.unresolved = TRUE;
++			if (depth)
++				depth->target.unresolved = TRUE;
++			target_samples = samples;
++		}
+ 	}
+ 	else
+ 	{
+@@ -1598,6 +1684,15 @@ static void anti_aliasing_prepare(void)
+ 		platform_log("anti-aliasing: the GPU has at most %d samples a pixel", (int)anti_aliasing_maximum_samples);
+ 		anti_aliasing_samples = anti_aliasing_maximum_samples < 2 ? 0 : anti_aliasing_maximum_samples;
+ 	}
++	anti_aliasing_multisample_failed = FALSE;
++	while (mode == _anti_aliasing_msaa && anti_aliasing_samples >= 2 &&
++		!multisample_supported(anti_aliasing_samples))
++	{
++		platform_log("anti-aliasing: %dx MSAA framebuffer is unsupported", anti_aliasing_samples);
++		anti_aliasing_samples = multisample_lower(anti_aliasing_samples);
++	}
++	if (mode == _anti_aliasing_msaa && anti_aliasing_samples < 2)
++		platform_log("anti-aliasing: no compatible multisampled framebuffer, so MSAA is disabled");
+ 	if ((mode == _anti_aliasing_fxaa || mode == _anti_aliasing_smaa) && !xgpu_post_prepare(mode == _anti_aliasing_smaa))
+ 		platform_log("anti-aliasing: its programs do not build, so the 3D view is not antialiased");
+ 	xgpu_gl_state_invalidate();
+@@ -1866,7 +1961,7 @@ long halo_screen_commit(void)
+ 		screen_width = width;
+ 		screen_scale[0] = scale[0];
+ 		screen_scale[1] = scale[1];
+-#ifndef HALO_ANDROID
++#if !defined(HALO_ANDROID) || defined(HALO_UWP_PC)
+ 		if (device.created)
+ 		{
+ 			device.presentation.BackBufferWidth = (UINT)width;
+diff --git a/port/linux/src/menu_files.c b/port/linux/src/menu_files.c
+index ce795529..3de5d366 100644
+--- a/port/linux/src/menu_files.c
++++ b/port/linux/src/menu_files.c
+@@ -153,6 +153,11 @@ static void files_gather(void)
+ 		unsigned long size = 0;
+ 		unsigned char *data;
+ 
++#ifdef HALO_XBOX_UWP
++            file_add(embedded->path, (const unsigned char *)embedded->data, embedded->size, 0);
++		continue;
++#endif
++
+ 		snprintf(path, sizeof(path), "%s/%s", folder, embedded->path);
+ 		data = file_read(path, &size);
+ 		if (data)
+diff --git a/port/linux/src/msvc_crt.c b/port/linux/src/msvc_crt.c
+index afeaddac..73654a3e 100644
+--- a/port/linux/src/msvc_crt.c
++++ b/port/linux/src/msvc_crt.c
+@@ -295,7 +295,7 @@ static unsigned short msvc_to_control_word(unsigned int value, unsigned short wo
+ 	return word;
+ }
+ 
+-#ifdef HALO_ANDROID
++#if defined(HALO_ANDROID) && !defined(HALO_XBOX_UWP)
+ /* AArch64: the rounding mode lives in FPCR.RMode, the sticky exception
+ flags in FPSR. Precision control and exception unmasking have no
+ equivalent; the rest of the MSVC control word is only remembered. */
+diff --git a/port/linux/src/p2p.c b/port/linux/src/p2p.c
+index 73f18275..53176d83 100644
+--- a/port/linux/src/p2p.c
++++ b/port/linux/src/p2p.c
+@@ -74,6 +74,10 @@ enum
+ 	datagram (WSAStartup's iMaxUdpDg) with its ports */
+ 	MAXIMUM_INNER_SIZE = 1400,
+ 	MAXIMUM_PACKET_SIZE = TUNNEL_HEADER_SIZE + MAXIMUM_INNER_SIZE + P2P_TAG_SIZE,
++	TUNNEL_PACKETS_PER_SLICE = 32,
++	PROXY_PACKETS_PER_SLICE = 16,
++	OUTGOING_DATAGRAM_QUEUE = 512,
++	OUTGOING_DATAGRAMS_PER_SLICE = 64,
+ 	/* the packets received out of order that are still taken */
+ 	REPLAY_WINDOW = 64,
+ 
+@@ -276,6 +280,23 @@ struct stun_server
+ 
+ pthread_mutex_t p2p_lock = PTHREAD_MUTEX_INITIALIZER;
+ 
++struct queued_datagram
++{
++	unsigned long address;
++	unsigned short source_port;
++	unsigned short destination_port;
++	unsigned short size;
++	unsigned char broadcast;
++	unsigned char data[MAXIMUM_INNER_SIZE - 5];
++};
++
++static pthread_mutex_t outgoing_datagram_lock = PTHREAD_MUTEX_INITIALIZER;
++static struct queued_datagram outgoing_datagrams[OUTGOING_DATAGRAM_QUEUE];
++static unsigned int outgoing_datagram_head;
++static unsigned int outgoing_datagram_count;
++static unsigned long outgoing_datagram_dropped;
++static unsigned long outgoing_datagram_reported;
++
+ static struct
+ {
+ 	int running;
+@@ -1648,47 +1669,48 @@ int p2p_broadcast_targets(unsigned short port, unsigned long *addresses, unsigne
+ static void datagram_send(struct peer *peer, unsigned short source_port, unsigned short port, const void *data,
+ 	int size);
+ 
++static int queue_datagram(unsigned long address, int broadcast, unsigned short source_port,
++	unsigned short destination_port, const void *data, int size)
++{
++	struct queued_datagram *entry;
++	unsigned int tail;
++
++	if (size < 0 || size > MAXIMUM_INNER_SIZE - 5)
++		return 1;
++	pthread_mutex_lock(&outgoing_datagram_lock);
++	if (outgoing_datagram_count == OUTGOING_DATAGRAM_QUEUE)
++	{
++		outgoing_datagram_head = (outgoing_datagram_head + 1) % OUTGOING_DATAGRAM_QUEUE;
++		outgoing_datagram_count--;
++		outgoing_datagram_dropped++;
++	}
++	tail = (outgoing_datagram_head + outgoing_datagram_count) % OUTGOING_DATAGRAM_QUEUE;
++	entry = &outgoing_datagrams[tail];
++	entry->address = address;
++	entry->source_port = source_port;
++	entry->destination_port = destination_port;
++	entry->size = (unsigned short)size;
++	entry->broadcast = (unsigned char)(broadcast != 0);
++	if (size)
++		memcpy(entry->data, data, (size_t)size);
++	outgoing_datagram_count++;
++	pthread_mutex_unlock(&outgoing_datagram_lock);
++	return 1;
++}
++
+ int p2p_send_datagram(unsigned short source_port, unsigned long address, unsigned short port, const void *data,
+ 	int size)
+ {
+-	struct peer *peer;
+-	int result;
+-
+ 	if (!is_virtual_address(address) || !p2p.running)
+ 		return 0;
+-	pthread_mutex_lock(&p2p_lock);
+-	peer = find_peer_by_address(address);
+-	if (!peer)
+-		result = address_retired(address) ? -1 : 0;
+-	else if (!peer->connected)
+-		result = -1;
+-	else
+-	{
+-		datagram_send(peer, source_port, port, data, size);
+-		result = 1;
+-	}
+-	pthread_mutex_unlock(&p2p_lock);
+-	return result;
++	return queue_datagram(address, 0, source_port, port, data, size);
+ }
+ 
+ int p2p_broadcast_datagram(unsigned short source_port, unsigned short port, const void *data, int size)
+ {
+-	int count = 0;
+-	int index;
+-
+ 	if (!p2p.running)
+ 		return 0;
+-	pthread_mutex_lock(&p2p_lock);
+-	for (index = 0; index < P2P_MAXIMUM_PEERS; index++)
+-	{
+-		if (p2p.peers[index].used && p2p.peers[index].connected)
+-		{
+-			datagram_send(&p2p.peers[index], source_port, port, data, size);
+-			count++;
+-		}
+-	}
+-	pthread_mutex_unlock(&p2p_lock);
+-	return count;
++	return queue_datagram(0, 1, source_port, port, data, size);
+ }
+ 
+ int p2p_peer_address(const unsigned char *peer_identifier, unsigned long *address)
+@@ -1826,6 +1848,48 @@ static void datagram_send(struct peer *peer, unsigned short source_port, unsigne
+ 	peer_send(peer, inner, size + 5);
+ }
+ 
++static void outgoing_datagrams_send(void)
++{
++	struct queued_datagram entry;
++	int sent;
++
++	for (sent = 0; sent < OUTGOING_DATAGRAMS_PER_SLICE; sent++)
++	{
++		int index;
++
++		pthread_mutex_lock(&outgoing_datagram_lock);
++		if (!outgoing_datagram_count)
++		{
++			unsigned long dropped = outgoing_datagram_dropped - outgoing_datagram_reported;
++
++			outgoing_datagram_reported = outgoing_datagram_dropped;
++			pthread_mutex_unlock(&outgoing_datagram_lock);
++			if (dropped)
++				platform_log("Internet play: discarded %lu stale outgoing datagrams after a traffic burst", dropped);
++			break;
++		}
++		entry = outgoing_datagrams[outgoing_datagram_head];
++		outgoing_datagram_head = (outgoing_datagram_head + 1) % OUTGOING_DATAGRAM_QUEUE;
++		outgoing_datagram_count--;
++		pthread_mutex_unlock(&outgoing_datagram_lock);
++
++		if (entry.broadcast)
++		{
++			for (index = 0; index < P2P_MAXIMUM_PEERS; index++)
++				if (p2p.peers[index].used && p2p.peers[index].connected)
++					datagram_send(&p2p.peers[index], entry.source_port, entry.destination_port,
++						entry.data, entry.size);
++		}
++		else
++		{
++			struct peer *peer = find_peer_by_address(entry.address);
++
++			if (peer && peer->connected)
++				datagram_send(peer, entry.source_port, entry.destination_port, entry.data, entry.size);
++		}
++	}
++}
++
+ /* a datagram from the game to a peer, through its stand-in (from a socket
+ connected to it, or not bound yet: p2p_send_datagram sends the rest) */
+ static void proxy_readable(struct proxy *proxy)
+@@ -1833,7 +1897,7 @@ static void proxy_readable(struct proxy *proxy)
+ 	unsigned char data[MAXIMUM_INNER_SIZE - 5];
+ 	int count;
+ 
+-	for (count = 0; count < 64; count++)
++	for (count = 0; count < PROXY_PACKETS_PER_SLICE; count++)
+ 	{
+ 		struct sockaddr_in from;
+ 		int from_length = sizeof(from);
+@@ -2237,7 +2301,7 @@ static void tunnel_readable(void)
+ 	unsigned char packet[2048];
+ 	int count;
+ 
+-	for (count = 0; count < 256; count++)
++	for (count = 0; count < TUNNEL_PACKETS_PER_SLICE; count++)
+ 	{
+ 		struct sockaddr_in from;
+ 		int from_length = sizeof(from);
+@@ -2835,7 +2899,7 @@ static void *p2p_thread(void *unused)
+ 		int asked_read_count, asked_write_count;
+ 		/* KCP's clock needs a pass every LOOP_INTERVAL while it carries
+ 		streams; otherwise the thread can sleep longer */
+-		int wait = LOOP_INTERVAL * 5;
++		int wait = LOOP_INTERVAL;
+ 		int index, asked;
+ 
+ 		/* what to wait for */
+@@ -2903,6 +2967,7 @@ static void *p2p_thread(void *unused)
+ 			read_count = write_count = 0;
+ 		}
+ 		pthread_mutex_lock(&p2p_lock);
++		outgoing_datagrams_send();
+ 
+ 		/* what is ready (the lists now hold only ready sockets, in the order
+ 		asked, so each one's owner is found going along both); a socket
+diff --git a/port/linux/src/p2p_lobby.c b/port/linux/src/p2p_lobby.c
+index 105d7a08..0217fc8f 100644
+--- a/port/linux/src/p2p_lobby.c
++++ b/port/linux/src/p2p_lobby.c
+@@ -608,6 +608,8 @@ static void listing_take(const struct queued *queued, const struct listing *list
+ 		memset(game, 0, sizeof(*game));
+ 		memcpy(game->key_hash, queued->key_hash, P2P_KEY_HASH_SIZE);
+ 		game->used = 1;
++		platform_log("Internet play: server browser accepted protocol %d game %s", listing->version,
++			listing->name[0] ? listing->name : "(unnamed)");
+ 	}
+ 	game->sequence = listing->sequence;
+ 	game->heard_time = p2p_now();
+diff --git a/port/linux/src/p2p_signal.c b/port/linux/src/p2p_signal.c
+index 23c464c6..a70710f6 100644
+--- a/port/linux/src/p2p_signal.c
++++ b/port/linux/src/p2p_signal.c
+@@ -415,6 +415,9 @@ static void make_topic(const unsigned char *token, const char *label, const unsi
+ 
+ static void broker_close(struct broker *broker, int failed)
+ {
++	if (failed && !broker->failures)
++		platform_log("Internet play: lost the signalling broker %s (socket error %d)", broker->host,
++			posix_socket_last_error());
+ 	if (broker->socket >= 0)
+ 		posix_socket_close(broker->socket);
+ 	broker->socket = -1;
+@@ -1372,6 +1375,9 @@ static int broker_acknowledged(struct broker *broker, const unsigned char *body,
+ 	broker->publish_tokens = PUBLISH_BURST;
+ 	broker->publish_time = p2p_now();
+ 	broker_sync_topics(broker);
++	platform_log("Internet play: connected to signalling broker %s using MQTT %s (public lobby %s)",
++		broker->host, broker->protocol == 5 ? "5" : "3.1.1",
++		broker_carries_lobby(broker) ? "available" : "unavailable");
+ 	/* a joiner's first request need not wait for the next repeat */
+ 	if (signalling.joining)
+ 		send_join();
+@@ -1609,6 +1615,9 @@ void p2p_signal_start(void)
+ 		platform_log("Internet play: no signalling brokers (network.brokers_file), so invites cannot work");
+ 	else if (text[strspn(text, ", ")])
+ 		platform_log("Internet play: only the first %d signalling brokers are used", MAXIMUM_BROKERS);
++	else
++		platform_log("Internet play: loaded %d signalling brokers from %s", signalling.broker_count,
++			config_string("network.brokers_file"));
+ }
+ 
+ void p2p_signal_select_sets(int *read, int *read_count, int *write, int *write_count, int maximum_count)
+diff --git a/port/linux/src/port_config.c b/port/linux/src/port_config.c
+index 434ac70b..9c6c58a0 100644
+--- a/port/linux/src/port_config.c
++++ b/port/linux/src/port_config.c
+@@ -75,12 +75,12 @@ static const struct config_setting config_settings[] =
+ 		"\"borderless\" is a window over the whole desktop, \"windowed\" a window\n"
+ 		"(display.window_size). Empty: display.fullscreen's (true: borderless).\n"
+ 		"F11 switches to the window and back." },
+-	{ "display.resolution", _config_string, "\"native\"", "HALO_RESOLUTION", _environment_value, _platform_desktop,
++	{ "display.resolution", _config_string, "\"native\"", "HALO_RESOLUTION", _environment_value, _platform_all,
+ 		"What fullscreen and borderless draw at: \"native\", the display's own, or\n"
+ 		"\"<width>x<height>\" (\"1920x1080\"), 640x480 or more. Fullscreen sets the\n"
+ 		"display to it; borderless draws it scaled to the display." },
+ 	{ "display.resolution_scaling", _config_string, "\"native\"", "HALO_RESOLUTION_SCALING", _environment_value,
+-		_platform_desktop,
++		_platform_all,
+ 		"\"native\" draws at the window's resolution (fullscreen, the display's or\n"
+ 		"display.resolution); \"original\" draws the Xbox's 640x480 and scales it\n"
+ 		"up." },
+@@ -95,7 +95,7 @@ static const struct config_setting config_settings[] =
+ 		"Xbox's 4:3." },
+ 	{ "display.vsync", _config_boolean, "true", "HALO_NO_VSYNC", _environment_set_is_false, _platform_all,
+ 		"Wait for the display between frames; false draws as fast as possible." },
+-	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_desktop,
++	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_all,
+ 		"With vsync off, the most frames a second: 0 for twice the display's\n"
+ 		"refresh rate, -1 for no limit (which can hang some Intel graphics)." },
+ 	{ "display.anti_aliasing", _config_string, "\"off\"", "HALO_ANTI_ALIASING", _environment_value, _platform_all,
+@@ -107,7 +107,7 @@ static const struct config_setting config_settings[] =
+ 	{ "display.interpolation", _config_boolean, "true", "HALO_INTERPOLATION", _environment_value, _platform_all,
+ 		"Draw a frame for every display refresh, blending between the game's 30\n"
+ 		"ticks a second; false keeps the original 30 frames a second." },
+-	{ "display.direct_camera", _config_boolean, "true", "HALO_DIRECT_CAMERA", _environment_value, _platform_desktop,
++	{ "display.direct_camera", _config_boolean, "true", "HALO_DIRECT_CAMERA", _environment_value, _platform_all,
+ 		"In first person, point the view where the player aims now instead of\n"
+ 		"where the last tick left it: the view turns the frame the mouse moves,\n"
+ 		"not up to two ticks (66 ms) later." },
+@@ -474,8 +474,10 @@ static pthread_mutex_t config_lock = PTHREAD_MUTEX_INITIALIZER;
+ static void config_path(char *path, size_t size)
+ {
+ #ifdef HALO_ANDROID
+-	/* the data folder, which the app names (port/android/host/host_main.c) */
+-	const char *root = getenv("HALO_DATA_ROOT");
++	const char *root = getenv("HALO_CONFIG_ROOT");
++
++	if (!root || !*root)
++		root = getenv("HALO_DATA_ROOT");
+ 
+ 	snprintf(path, size, "%s/config.toml", root && *root ? root : ".");
+ #else
+diff --git a/port/linux/src/sdl_platform.c b/port/linux/src/sdl_platform.c
+index 58130ee4..c08938c3 100644
+--- a/port/linux/src/sdl_platform.c
++++ b/port/linux/src/sdl_platform.c
+@@ -17,9 +17,11 @@ and the debug keyboard that the game's console reads.
+ #include "xiso.h"
+ 
+ #include <SDL3/SDL.h>
++#include <errno.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <time.h>
+ #if !defined(_WIN32) && !defined(HALO_ANDROID)
+ #include <signal.h>
+ #endif
+@@ -647,6 +649,64 @@ int platform_window_sizes(long *widths, long *heights, int maximum)
+ 	return platform_resolution_add(widths, heights, count, maximum, width, height);
+ }
+ 
++#else
++#ifdef HALO_UWP_PC
++static BOOL platform_uwp_resolution(long *width, long *height)
++{
++	const char *text = config_string("display.resolution");
++	char *end;
++
++	*width = strtol(text, &end, 10);
++	*height = *end == 'x' || *end == 'X' ? strtol(end + 1, &end, 10) : 0;
++	return !*end && *width >= 640 && *height >= 480;
++}
++
++BOOL platform_screen_mode(long *width, long *height)
++{
++	long selected_width, selected_height;
++	int drawable_width = 1920, drawable_height = 1080;
++
++	if (!strcmp(config_string("display.resolution_scaling"), "original"))
++		return FALSE;
++	if (platform_window)
++		SDL_GetWindowSizeInPixels(platform_window, &drawable_width, &drawable_height);
++	if (drawable_width <= 0 || drawable_height <= 0)
++	{
++		drawable_width = 1920;
++		drawable_height = 1080;
++	}
++	*width = drawable_width;
++	*height = drawable_height;
++	if (platform_uwp_resolution(&selected_width, &selected_height) &&
++		selected_width <= *width && selected_height <= *height)
++	{
++		*width = selected_width;
++		*height = selected_height;
++	}
++	return TRUE;
++}
++
++int platform_display_resolutions(long *widths, long *heights, int maximum)
++{
++	static const short modes[][2] = { { 1600, 900 }, { 1280, 720 }, { 640, 480 } };
++	int count = maximum < 3 ? maximum : 3;
++	int index;
++
++	for (index = 0; index < count; index++)
++	{
++		widths[index] = modes[index][0];
++		heights[index] = modes[index][1];
++	}
++	return count;
++}
++
++int platform_window_sizes(long *widths, long *heights, int maximum)
++{
++	(void)widths;
++	(void)heights;
++	(void)maximum;
++	return 0;
++}
+ #else
+ int platform_display_resolutions(long *widths, long *heights, int maximum)
+ {
+@@ -663,6 +723,7 @@ int platform_window_sizes(long *widths, long *heights, int maximum)
+ 	(void)maximum;
+ 	return 0;
+ }
++#endif
+ 
+ #endif
+ #ifndef HALO_ANDROID
+@@ -796,7 +857,27 @@ void platform_video_drawable_size(int *width, int *height)
+ 	SDL_GetWindowSizeInPixels(platform_window, width, height);
+ }
+ 
+-#ifndef HALO_ANDROID
++#if !defined(HALO_ANDROID) || defined(HALO_UWP_PC)
++#ifdef HALO_UWP_PC
++static Uint64 frame_ticks_ns(void)
++{
++	struct timespec now;
++
++	clock_gettime(CLOCK_MONOTONIC, &now);
++	return (Uint64)now.tv_sec * 1000000000ULL + (Uint64)now.tv_nsec;
++}
++
++static void frame_delay_ns(Uint64 delay)
++{
++	struct timespec duration;
++
++	duration.tv_sec = (time_t)(delay / 1000000000ULL);
++	duration.tv_nsec = (long)(delay % 1000000000ULL);
++	while (nanosleep(&duration, &duration) == -1 && errno == EINTR)
++		;
++}
++#endif
++
+ /* with vsync off, the time between frames display.max_fps asks for (0:
+ twice the display's refresh rate), or 0 for no limit. A GPU never left idle
+ can hang (Intel's Raptor Lake graphics, whose reset then takes the desktop
+@@ -819,10 +900,14 @@ static Uint64 frame_interval_ns(void)
+ 	rate = (float)maximum;
+ 	if (!maximum)
+ 	{
++#ifdef HALO_UWP_PC
++		rate = 120.0f;
++#else
+ 		SDL_DisplayID display = SDL_GetDisplayForWindow(platform_window);
+ 		const SDL_DisplayMode *mode = display ? SDL_GetCurrentDisplayMode(display) : NULL;
+ 
+ 		rate = 2.0f * (mode && mode->refresh_rate > 0.0f ? mode->refresh_rate : 60.0f);
++#endif
+ 	}
+ 	return (Uint64)(1e9f / rate);
+ }
+@@ -830,20 +915,28 @@ static Uint64 frame_interval_ns(void)
+ #endif
+ void platform_video_swap(void)
+ {
+-#ifndef HALO_ANDROID
++#if !defined(HALO_ANDROID) || defined(HALO_UWP_PC)
+ 	static Uint64 next_frame;
+ 	Uint64 interval, now;
+ 
+ #endif
+ 	SDL_GL_SwapWindow(platform_window);
+-#ifndef HALO_ANDROID
++#if !defined(HALO_ANDROID) || defined(HALO_UWP_PC)
+ 	interval = frame_interval_ns();
+ 	if (!interval)
+ 		return;
++#ifdef HALO_UWP_PC
++	now = frame_ticks_ns();
++#else
+ 	now = SDL_GetTicksNS();
++#endif
+ 	if (next_frame > now)
+ 	{
++#ifdef HALO_UWP_PC
++		frame_delay_ns(next_frame - now);
++#else
+ 		SDL_DelayPrecise(next_frame - now);
++#endif
+ 		now = next_frame;
+ 	}
+ 	/* (a frame more than an interval late starts the count again) */
+diff --git a/port/linux/src/sdl_platform.h b/port/linux/src/sdl_platform.h
+index 1c4978be..35fb0f3d 100644
+--- a/port/linux/src/sdl_platform.h
++++ b/port/linux/src/sdl_platform.h
+@@ -59,7 +59,7 @@ struct platform_keystroke
+ BOOL platform_sdl_initialize(void);
+ /* creates the window and makes its OpenGL context current on this thread */
+ BOOL platform_video_initialize(unsigned long width, unsigned long height);
+-#ifndef HALO_ANDROID
++#if !defined(HALO_ANDROID) || defined(HALO_UWP_PC)
+ BOOL platform_screen_mode(long *width, long *height);
+ #endif
+ /* Video Setup's resolutions (port/linux/game/menu_tags.c), in pixels: the
+diff --git a/port/linux/src/xbox_memory.c b/port/linux/src/xbox_memory.c
+index 623eea39..1902c1a7 100644
+--- a/port/linux/src/xbox_memory.c
++++ b/port/linux/src/xbox_memory.c
+@@ -37,6 +37,7 @@ static unsigned long block_page_count[CONTIGUOUS_PAGE_COUNT];
+ static BOOL arena_reserved = FALSE;
+ static pthread_mutex_t arena_lock = PTHREAD_MUTEX_INITIALIZER;
+ static void *custom_edition_tag_cache = NULL;
++static void custom_edition_tag_cache_reserve(void);
+ 
+ static int protection_to_host(DWORD protect)
+ {
+@@ -52,8 +53,12 @@ static int protection_to_host(DWORD protect)
+ }
+ 
+ /* Reserve the window before anything else can map into it. */
++#ifdef HALO_XBOX_UWP
++void platform_contiguous_initialize(void)
++#else
+ __attribute__((constructor(101)))
+ static void contiguous_arena_reserve(void)
++#endif
+ {
+ 	void *wanted = (void *)PLATFORM_CONTIGUOUS_BASE;
+ 	void *result = mmap(wanted, PLATFORM_CONTIGUOUS_SIZE, PROT_NONE,
+@@ -62,6 +67,7 @@ static void contiguous_arena_reserve(void)
+ 	if (result == wanted)
+ 	{
+ 		arena_reserved = TRUE;
++		platform_log("reserved Xbox contiguous memory window at %p", wanted);
+ 	}
+ 	else
+ 	{
+@@ -70,12 +76,17 @@ static void contiguous_arena_reserve(void)
+ 		platform_log("cannot reserve the Xbox contiguous memory window at %p (%s)",
+ 			wanted, strerror(errno));
+ 	}
++#ifdef HALO_XBOX_UWP
++	custom_edition_tag_cache_reserve();
++#endif
+ }
+ 
+ /* The Custom Edition tag cache, reserved before anything else can map into
+ it (its pages are backed as they are touched); only when Custom Edition maps
+ may run, as it takes 23 MB of the address space. */
++#ifndef HALO_XBOX_UWP
+ __attribute__((constructor(102)))
++#endif
+ static void custom_edition_tag_cache_reserve(void)
+ {
+ 	void *wanted = (void *)CUSTOM_EDITION_TAG_CACHE_ADDRESS;
+@@ -88,6 +99,7 @@ static void custom_edition_tag_cache_reserve(void)
+ 	if (result == wanted)
+ 	{
+ 		custom_edition_tag_cache = result;
++		platform_log("reserved Custom Edition tag cache at %p", wanted);
+ 	}
+ 	else
+ 	{
+@@ -179,12 +191,17 @@ void *platform_contiguous_alloc(unsigned long size, unsigned long alignment,
+ 	address = (void *)(PLATFORM_CONTIGUOUS_BASE + first * PAGE_SIZE_BYTES);
+ 	memory_watch_forget(address, count * PAGE_SIZE_BYTES);
+ 	/* map fresh zeroed pages over the reservation */
+-	if (mmap(address, count * PAGE_SIZE_BYTES, protection_to_host(protect),
+-		MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) != address)
+ 	{
++		void *mapped = mmap(address, count * PAGE_SIZE_BYTES, protection_to_host(protect),
++			MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
++		if (mapped != address)
++	{
++		platform_log("contiguous mmap failed: wanted %p got %p, %lu bytes (%s)",
++			address, mapped, count * PAGE_SIZE_BYTES, strerror(errno));
+ 		pthread_mutex_unlock(&arena_lock);
+ 		return NULL;
+ 	}
++	}
+ 	for (page = first; page < first + count; page++)
+ 		page_protection[page] = protect;
+ 	block_page_count[first] = count;
+diff --git a/port/linux/src/xnet.c b/port/linux/src/xnet.c
+index e4ef954b..3ee06e19 100644
+--- a/port/linux/src/xnet.c
++++ b/port/linux/src/xnet.c
+@@ -1174,10 +1174,16 @@ non-loopback IPv4 address */
+ static unsigned long title_address(void)
+ {
+ 	unsigned long override;
++	unsigned long address;
+ 
+ 	if (local_address_setting(&override))
+ 		return override;
++#ifdef HALO_XBOX_UWP
++        address = posix_local_ipv4_address();
++	return address ? address : 0x0100007FUL; /* 127.0.0.1 in network byte order */
++#else
+ 	return posix_local_ipv4_address();
++#endif
+ }
+ 
+ DWORD WSAAPI XNetGetTitleXnAddr(XNADDR *address)
+diff --git a/port/windows/src/win32_files.c b/port/windows/src/win32_files.c
+index be9b0415..89caa4cb 100644
+--- a/port/windows/src/win32_files.c
++++ b/port/windows/src/win32_files.c
+@@ -137,8 +137,19 @@ int posix_set_file_times(const char *path,
+ 	posix_ulong access_seconds, posix_ulong access_nanoseconds,
+ 	posix_ulong modification_seconds, posix_ulong modification_nanoseconds)
+ {
+-	HANDLE handle = CreateFileA(path, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
++	HANDLE handle;
++#if WINAPI_FAMILY == WINAPI_FAMILY_APP
++	wchar_t wide[MAX_PATH];
++	CREATEFILE2_EXTENDED_PARAMETERS parameters = { sizeof(parameters) };
++	MultiByteToWideChar(CP_UTF8, 0, path, -1, wide, MAX_PATH);
++	parameters.dwFileAttributes = FILE_ATTRIBUTE_NORMAL;
++	parameters.dwFileFlags = FILE_FLAG_BACKUP_SEMANTICS;
++	handle = CreateFile2(wide, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
++		OPEN_EXISTING, &parameters);
++#else
++	handle = CreateFileA(path, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+ 		NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
++#endif
+ 	FILETIME access, modification;
+ 	BOOL result;
+ 
+diff --git a/source/bink/bink_playback.c b/source/bink/bink_playback.c
+index ba6310bb..11d71876 100644
+--- a/source/bink/bink_playback.c
++++ b/source/bink/bink_playback.c
+@@ -511,6 +511,11 @@ void bink_playback_start(
+ 	const char *full_pathname,
+ 	unsigned long flags)
+ {
++#ifdef HALO_ANDROID
++	(void)flags;
++	platform_log("Bink video is not supported; skipping \"%s\"", full_pathname ? full_pathname : "");
++	return;
++#endif
+ 	bink_get_memory_available("begin bink_playback_start");
+ 
+ 	if (!bink_globals.initialized)
+diff --git a/source/cache/cache_files_decompress_windows.c b/source/cache/cache_files_decompress_windows.c
+index 00a408a6..ce3e1997 100644
+--- a/source/cache/cache_files_decompress_windows.c
++++ b/source/cache/cache_files_decompress_windows.c
+@@ -505,6 +505,10 @@ static void cache_copy_issue_initial_reads(
+ 	struct simple_decompressor_definition *self);
+ static void cache_copy_run_decompression(
+ 	struct simple_decompressor_definition *self);
++#ifdef HALO_XBOX_UWP
++static boolean cache_copy_run_xbox_buffered(
++	struct simple_decompressor_definition *self);
++#endif
+ static unsigned long __stdcall simple_cache_copy_thread(
+ 	void *parameter);
+ void CALLBACK cache_copy_FileIOCompletionRoutine(
+@@ -1677,11 +1681,113 @@ static void cache_copy_run_decompression(
+ 	return;
+ }
+ 
++#ifdef HALO_XBOX_UWP
++static boolean cache_copy_run_xbox_buffered(
++	struct simple_decompressor_definition *self)
++{
++	byte *input = self->read_buffers[0];
++	byte *output = self->write_buffers[0];
++	unsigned long input_capacity = NUMBER_OF_READ_BUFFERS * READ_BUFFER_SIZE;
++	unsigned long output_total = 0;
++	unsigned long expected_output;
++	unsigned long last_percent = 101;
++	DWORD transferred;
++	long zlib_result = Z_OK;
++	boolean succeeded = FALSE;
++	struct cache_file_header blank_header = {0};
++
++	XPhysicalProtect(input, input_capacity, PAGE_READWRITE);
++	XPhysicalProtect(output, WRITE_BUFFER_SIZE, PAGE_READWRITE);
++	SetFilePointer(self->destination_file, 0, NULL, FILE_BEGIN);
++	if (!WriteFile(self->destination_file, &blank_header, sizeof(blank_header), &transferred, NULL) ||
++		transferred != sizeof(blank_header))
++	{
++		cache_copy_set_flag(_copy_write_failed_bit);
++		return FALSE;
++	}
++	SetFilePointer(self->source_file, 0, NULL, FILE_BEGIN);
++	if (!ReadFile(self->source_file, &self->header, sizeof(self->header), &transferred, NULL) ||
++		transferred != sizeof(self->header) ||
++		!cache_file_header_verify(&self->header, "cache decompressed", TRUE))
++	{
++		cache_copy_set_flag(_copy_read_failed_bit);
++		return FALSE;
++	}
++	expected_output = self->header.size - sizeof(self->header);
++	self->read_progress = 0.0f;
++	cache_copy_initialize_zlib(self);
++	SetFilePointer(self->destination_file, sizeof(self->header), NULL, FILE_BEGIN);
++
++	while (!cache_copy_stop_requested() && output_total < expected_output)
++	{
++		unsigned long produced;
++
++		if (!self->zlib_stream.avail_in)
++		{
++			if (!ReadFile(self->source_file, input, input_capacity, &transferred, NULL) || !transferred)
++			{
++				cache_copy_set_flag(_copy_read_failed_bit);
++				break;
++			}
++			self->zlib_stream.next_in = input;
++			self->zlib_stream.avail_in = transferred;
++			self->read_progress = (real)(GetFileSize(self->source_file, NULL) -
++				(self->read_file_size - SetFilePointer(self->source_file, 0, NULL, FILE_CURRENT))) /
++				(real)self->read_file_size;
++		}
++
++		self->zlib_stream.next_out = output;
++		self->zlib_stream.avail_out = WRITE_BUFFER_SIZE;
++		zlib_result = inflate(&self->zlib_stream, 0);
++		produced = WRITE_BUFFER_SIZE - self->zlib_stream.avail_out;
++		if (produced && (!WriteFile(self->destination_file, output, produced, &transferred, NULL) ||
++			transferred != produced))
++		{
++			cache_copy_set_flag(_copy_write_failed_bit);
++			break;
++		}
++		output_total += produced;
++		if (self->header.size)
++		{
++			unsigned long percent = output_total * 100UL / expected_output;
++			if (percent / 10 != last_percent / 10)
++			{
++				void platform_log(char const *format, ...);
++				platform_log("cache: map decompression %lu%%", percent);
++				last_percent = percent;
++			}
++		}
++		if (zlib_result == Z_STREAM_END)
++			break;
++		if (zlib_result != Z_OK || (!produced && self->zlib_stream.avail_in))
++		{
++			cache_copy_set_flag(_copy_bad_file_bit);
++			break;
++		}
++	}
++
++	if (zlib_result == Z_STREAM_END && output_total == expected_output && !cache_copy_stop_requested())
++	{
++		SetFilePointer(self->destination_file, 0, NULL, FILE_BEGIN);
++		if (WriteFile(self->destination_file, &self->header, sizeof(self->header), &transferred, NULL) &&
++			transferred == sizeof(self->header))
++			succeeded = TRUE;
++		else
++			cache_copy_set_flag(_copy_write_failed_bit);
++	}
++	else if (!cache_copy_stop_requested() && !(global_self->flags & ALL_COPY_FAILURE_FLAGS))
++	{
++		cache_copy_set_flag(_copy_bad_file_bit);
++	}
++	cache_copy_dispose_zlib(self);
++	return succeeded;
++}
++#endif
++
+ static unsigned long __stdcall simple_cache_copy_thread(
+ 	void *parameter)
+ {
+ 	struct simple_decompressor_definition *self = global_self;
+-
+ 	for (;;)
+ 	{
+ 		WaitForSingleObject(self->copy_start_event, INFINITE);
+@@ -1692,6 +1798,10 @@ static unsigned long __stdcall simple_cache_copy_thread(
+ 		cache_copy_initialize_read_buffers(self);
+ 		cache_copy_initialize_file_data(self);
+ 
++#ifdef HALO_XBOX_UWP
++		if (!cache_copy_stop_requested() && !(self->flags & ALL_COPY_FAILURE_FLAGS))
++			cache_copy_run_xbox_buffered(self);
++#else
+ 		/* port: nor is a bad file (cache_copy_initialize_file_data) read */
+ 		if (!cache_copy_stop_requested() && !(self->flags & ALL_COPY_FAILURE_FLAGS))
+ 		{
+@@ -1802,6 +1912,7 @@ static unsigned long __stdcall simple_cache_copy_thread(
+ 		}
+ 
+ 		cache_copy_wait_for_async_io(self);
++#endif
+ 
+ 		CloseHandle(self->source_file);
+ 		self->source_file = NULL;
+diff --git a/source/cache/cache_files_windows.c b/source/cache/cache_files_windows.c
+index d8c7e176..dc969d43 100644
+--- a/source/cache/cache_files_windows.c
++++ b/source/cache/cache_files_windows.c
+@@ -194,6 +194,14 @@ symbols in this file:
+ 
+ #include <xtl.h>
+ 
++#if defined(HALO_XBOX_UWP)
++int host_decompress_map(const char *source_path, const char *destination_path,
++	unsigned int decompressed_size, unsigned int destination_size);
++void host_log(int priority, const char *text);
++void platform_translate_path(const char *xbox_path, char *host_path,
++	unsigned long host_path_size);
++#endif
++
+ /* ---------- constants */
+ 
+ enum
+@@ -619,12 +627,18 @@ boolean cache_files_precache_map_begin(
+ 
+ 		if (cache_file_read_header_from_dvd(cache_map_name, &header))
+ 		{
+-			long buffer_size = cache_copy_buffer_size(copy_map);
+ 			short map_file_index = cached_map_files_find_free_map(
+ 				header.file_length,
+ 				header.scenario_type);
+-			void *buffer;
+ 			struct cached_map_file *map_file;
++#if defined(HALO_XBOX_UWP)
++			char destination[256];
++			char source_host[1024];
++			char destination_host[1024];
++#else
++			long buffer_size = cache_copy_buffer_size(copy_map);
++			void *buffer;
++#endif
+ 
+ 			/* port: the cache file slots are found by the name in their
+ 			header (cached_map_files_find_map): a map file whose header names
+@@ -657,7 +671,9 @@ boolean cache_files_precache_map_begin(
+ 
+ 				return FALSE;
+ 			}
++#if !defined(HALO_XBOX_UWP)
+ 			buffer = texture_cache_steal_memory(buffer_size);
++#endif
+ 			map_file = cached_map_file_get(map_file_index);
+ 
+ 			memset(
+@@ -673,6 +689,37 @@ boolean cache_files_precache_map_begin(
+ 			cache_file_globals.copying_to_map_file_name[
+ 				sizeof(cache_file_globals.copying_to_map_file_name) - 1] = 0;
+ 			cache_file_get_map_path(cache_map_name, path);
++#if defined(HALO_XBOX_UWP)
++			host_log(4, "guest: starting native map precache");
++			cached_map_file_get_path(map_file_index, destination);
++			platform_translate_path(path, source_host, sizeof(source_host));
++			platform_translate_path(destination, destination_host, sizeof(destination_host));
++			CloseHandle(map_file->file);
++			map_file->file = INVALID_HANDLE_VALUE;
++			if (!host_decompress_map(source_host, destination_host,
++				(unsigned int)header.file_length,
++				(unsigned int)cached_map_file_get_size(map_file_index)))
++			{
++				map_file->file = CreateFileA(destination, GENERIC_READ | GENERIC_WRITE,
++					0, NULL, OPEN_ALWAYS, FILE_FLAG_NO_BUFFERING | FILE_FLAG_OVERLAPPED, NULL);
++				cache_file_globals.copy_in_progress = FALSE;
++				cache_file_globals.copying_to_map_file_index = NONE;
++				return FALSE;
++			}
++			map_file->file = CreateFileA(destination, GENERIC_READ | GENERIC_WRITE,
++				0, NULL, OPEN_EXISTING, FILE_FLAG_NO_BUFFERING | FILE_FLAG_OVERLAPPED, NULL);
++			if (map_file->file == INVALID_HANDLE_VALUE)
++			{
++				cache_file_globals.copy_in_progress = FALSE;
++				cache_file_globals.copying_to_map_file_index = NONE;
++				return FALSE;
++			}
++			cached_map_file_set_modification_date(map_file_index);
++			cached_map_file_read_header(map_file_index);
++                cache_file_globals.copy_in_progress = FALSE;
++			cache_file_globals.copying_to_map_file_index = NONE;
++			return cached_map_files_find_map(cache_map_name) != NONE;
++#else
+ 			error(_error_silent, "starting precaching of map '%s'", cache_map_name);
+ 			cache_copy_begin(
+ 				buffer,
+@@ -680,6 +727,7 @@ boolean cache_files_precache_map_begin(
+ 				cached_map_file_get_handle(map_file_index),
+ 				cached_map_file_get_size(map_file_index),
+ 				path);
++#endif
+ 		}
+ 		else
+ 		{
+@@ -700,6 +748,8 @@ boolean cache_files_precache_map_begin(
+ void cache_files_initialize(
+ 	void)
+ {
++	void platform_log(char const *format, ...);
++	platform_log("cache: initialize begin");
+ 	cache_file_globals.open_map_file_index = NONE;
+ 	cache_file_globals.requests = match_malloc(
+ 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
+@@ -714,9 +764,15 @@ void cache_files_initialize(
+ 	(port/linux/game/custom_edition_cache.c) */
+ 	memset(cache_file_globals.requests, 0, MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS * sizeof(struct cache_file_request));
+ 	cache_file_windows_thread_create();
++	platform_log("cache: worker created");
++#ifndef HALO_XBOX_UWP
+ 	cache_files_verify_language();
++#endif
++	platform_log("cache: language verified");
+ 	cache_files_open_cache_files();
++	platform_log("cache: cache files opened");
+ 	cache_copy_initialize();
++	platform_log("cache: initialize complete");
+ 
+ 	return;
+ }
+@@ -1023,6 +1079,7 @@ static void cache_files_verify_language(
+ static void cache_files_open_cache_files(
+ 	void)
+ {
++	void platform_log(char const *format, ...);
+ 	struct cache_file_header blank_header;
+ 	struct cache_file_header dvd_header;
+ 	char path[256];
+@@ -1044,6 +1101,7 @@ static void cache_files_open_cache_files(
+ 		valid = FALSE;
+ 		cached_map_file_get_path(map_file_index, path);
+ 		size = cached_map_file_get_size(map_file_index);
++		platform_log("cache: opening slot %d %s size=%ld", map_file_index, path, size);
+ 		file = CreateFileA(
+ 			path,
+ 			GENERIC_READ | GENERIC_WRITE,
+@@ -1054,8 +1112,12 @@ static void cache_files_open_cache_files(
+ 			NULL);
+ 		if (file != INVALID_HANDLE_VALUE)
+ 		{
+-			if (GetLastError() == ERROR_ALREADY_EXISTS &&
+-				GetFileSize(file, NULL) == (unsigned long)size)
++			DWORD open_error = GetLastError();
++			DWORD actual_size = GetFileSize(file, NULL);
++			platform_log("cache: slot %d opened existed=%lu actual=%lu", map_file_index,
++				open_error, actual_size);
++			if (open_error == ERROR_ALREADY_EXISTS &&
++				actual_size == (unsigned long)size)
+ 			{
+ 				valid = TRUE;
+ 			}
+@@ -1271,11 +1333,13 @@ static boolean cache_file_read_header_from_dvd(
+ 	const char *map_name,
+ 	struct cache_file_header *header)
+ {
++	void platform_log(char const *format, ...);
+ 	boolean result = FALSE;
+ 	char path[256];
+ 	HANDLE file;
+ 
+ 	cache_file_get_map_path(map_name, path);
++	platform_log("cache: reading source header %s", path);
+ 	file = CreateFileA(
+ 		path,
+ 		GENERIC_READ,
+@@ -1301,6 +1365,7 @@ static boolean cache_file_read_header_from_dvd(
+ 		}
+ 		CloseHandle(file);
+ 	}
++	platform_log("cache: source header %s result=%d error=%lu", path, result, GetLastError());
+ 
+ 	return result;
+ }
+diff --git a/source/cseries/errors.c b/source/cseries/errors.c
+index 7b5a40b3..98c872d0 100644
+--- a/source/cseries/errors.c
++++ b/source/cseries/errors.c
+@@ -219,7 +219,9 @@ void errors_initialize(
+ 	error_globals.output_to_debug_file = TRUE;
+ 	error_globals.overflow_suppression = TRUE;
+ 	reset_error_state();
+-	stack_walk_initialize();
++#ifndef HALO_XBOX_UWP
++        stack_walk_initialize();
++#endif
+ 
+ 	return;
+ }
+@@ -278,6 +280,16 @@ void error(
+ 			va_end(argument_list);
+ 			csstrcat(string, "\r\n");
+ 
++#ifdef HALO_XBOX_UWP
++                if (priority == _error_silent || priority == _error_log)
++			{
++				extern void platform_log(char const *format, ...);
++				platform_log("game error priority=%d: %s", priority, string);
++				error_globals.recursion_lock = FALSE;
++				return;
++			}
++#endif
++
+ 			/* (port: the file first: printing used to halt on a long line
+ 			while this call still held the lock, and the reason never reached
+ 			debug.txt) */
+@@ -287,9 +299,15 @@ void error(
+ 			assert that stops the game, and what a command someone typed
+ 			logs (its answer), always; the rest, the game's chatter.
+ 			debug.txt has it whatever that is) */
+-			if (priority != _error_log &&
++			if (
++#ifndef HALO_XBOX_UWP
++				priority != _error_log &&
+ 				terminal_shows(terminal_command_running || !strncmp(string, "EXCEPTION halt", 14) ||
+-					!strncmp(string, "EXCEPTION assert", 16) ? _terminal_message_serious : _terminal_message_chatter))
++					!strncmp(string, "EXCEPTION assert", 16) ? _terminal_message_serious : _terminal_message_chatter)
++#else
++				FALSE
++#endif
++			)
+ 			{
+ 				terminal_printf(global_real_argb_white, "%s", string);
+ 			}
+diff --git a/source/cutscene/cinematics.c b/source/cutscene/cinematics.c
+index 26d9f895..26b8c6a4 100644
+--- a/source/cutscene/cinematics.c
++++ b/source/cutscene/cinematics.c
+@@ -236,7 +236,7 @@ void cinematic_suppress_bsp_object_creation(
+ boolean cinematic_in_progress(
+ 	void)
+ {
+-	return cinematic_globals->in_progress;
++    return cinematic_globals ? cinematic_globals->in_progress : FALSE;
+ }
+ 
+ void cinematic_stop(
+diff --git a/source/effects/decals.c b/source/effects/decals.c
+index 18641671..973cd651 100644
+--- a/source/effects/decals.c
++++ b/source/effects/decals.c
+@@ -851,7 +851,7 @@ pixel32 real_a_rgb_color_to_pixel32(
+ void decals_update(
+ 	void)
+ {
+-	if (global_decal_data->valid)
++	if (global_decal_data && global_decal_data->valid)
+ 	{
+ 		struct data_iterator iterator;
+ 
+diff --git a/source/game/game.c b/source/game/game.c
+index 83742035..9180a6e6 100644
+--- a/source/game/game.c
++++ b/source/game/game.c
+@@ -254,6 +254,10 @@ static struct profile_section game_update_section = {"game_update", NONE, TRUE};
+ void game_initialize(
+ 	void)
+ {
++#if defined(HALO_XBOX_UWP)
++	void host_log(int priority, const char *text);
++	host_log(4, "guest: game initialize begin");
++#endif
+ 	game_globals = game_state_malloc(
+ 		"game globals",
+ 		NULL,
+@@ -300,6 +304,9 @@ void game_initialize(
+ 	player_ui_initialize();
+ 	bink_playback_initialize();
+ 	progress_bar_initialize();
++#if defined(HALO_XBOX_UWP)
++	host_log(4, "guest: game initialize complete");
++#endif
+ 
+ 	return;
+ }
+@@ -669,11 +676,29 @@ void game_initialize_for_new_map(
+ 	hs_initialize_for_new_map();
+ 	recorded_animations_initialize_for_new_map();
+ 	cheats_initialize_for_new_map();
++	#if defined(HALO_XBOX_UWP)
++	{
++		void host_log(int priority, const char *text);
++		host_log(4, "guest: map systems initialized; placing objects");
++	}
++	#endif
+ 
+ 	game_globals->active = TRUE;
+ 	objects_place();
++	#if defined(HALO_XBOX_UWP)
++	{
++		void host_log(int priority, const char *text);
++		host_log(4, "guest: objects placed; placing AI");
++	}
++	#endif
+ 	if (!game_in_editor())
+ 		ai_place();
++	#if defined(HALO_XBOX_UWP)
++	{
++		void host_log(int priority, const char *text);
++		host_log(4, "guest: AI placed; map initialization complete");
++	}
++	#endif
+ 	/* (the map's objects, placed as on the host: a distributed client's own
+ 	from now on go elsewhere, port/linux/game/network_objects.c) */
+ 	network_objects_placed();
+@@ -817,42 +842,45 @@ void game_precache_new_map(
+ 			}
+ 		}
+ 
+-		cache_files_precache_set_priority(blocking);
+-		if (blocking)
++            if (!cache_files_precache_map_loaded(map_name))
+ 		{
+-			struct game_runtime_globals_prefix *globals = game_globals;
++			cache_files_precache_set_priority(blocking);
++			if (blocking)
++			{
++				struct game_runtime_globals_prefix *globals = game_globals;
+ 
+-			globals->map_load_in_progress = TRUE;
+-			globals->loading_progress = 0.0f;
+-			match_assert(
++				globals->map_load_in_progress = TRUE;
++				globals->loading_progress = 0.0f;
++				match_assert(
+ 				"c:\\halo\\SOURCE\\game\\game.c",
+ 				0x105,
+ 				cache_files_precache_in_progress() &&
+ 					cache_files_precache_is_copying_map(map_name));
+-			ui_widget_load_progress_widget();
+-			progress_bar_begin(global_scenario_index != NONE);
+-			do
+-			{
+-				map_status = cache_files_precache_map_status(
++				ui_widget_load_progress_widget();
++				progress_bar_begin(global_scenario_index != NONE);
++				do
++				{
++					map_status = cache_files_precache_map_status(
+ 					&game_globals->loading_progress);
+-				main_pregame_render();
+-				main_rasterizer_throttle();
+-				main_present_frame();
+-			}
+-			while (!map_status);
++					main_pregame_render();
++					main_rasterizer_throttle();
++					main_present_frame();
++				}
++				while (!map_status);
+ 
+-			progress_bar_end();
+-			ui_widgets_close_all();
+-			if (map_status == _cached_map_file_failed)
+-				display_error_damaged_media();
+-			cache_files_precache_map_end();
+-			match_assert(
++				progress_bar_end();
++				ui_widgets_close_all();
++				if (map_status == _cached_map_file_failed)
++					display_error_damaged_media();
++				cache_files_precache_map_end();
++				match_assert(
+ 				"c:\\halo\\SOURCE\\game\\game.c",
+ 				0x11A,
+ 				cache_files_precache_map_loaded(map_name));
+-			globals = game_globals;
+-			globals->map_load_in_progress = FALSE;
+-			globals->loading_progress = 1.0f;
++				globals = game_globals;
++				globals->map_load_in_progress = FALSE;
++				globals->loading_progress = 1.0f;
++			}
+ 		}
+ 	}
+ 
+diff --git a/source/interface/attract_mode.c b/source/interface/attract_mode.c
+index de29eb33..d780eb04 100644
+--- a/source/interface/attract_mode.c
++++ b/source/interface/attract_mode.c
+@@ -163,6 +163,10 @@ const char *attract_mode_get_localized_movie_path(
+ 			break;
+ 		}
+ 
++#ifdef HALO_ANDROID
++		(void)movie_file;
++		break;
++#else
+ 		if (file_exists(file_reference_create_from_path(&movie_file, bss_00453ae8, FALSE)))
+ 		{
+ 			break;
+@@ -185,6 +189,7 @@ const char *attract_mode_get_localized_movie_path(
+ 
+ 			break;
+ 		}
++#endif
+ 	}
+ 
+ 	return bss_00453ae8;
+diff --git a/source/interface/terminal.c b/source/interface/terminal.c
+index ee9ca827..242328c1 100644
+--- a/source/interface/terminal.c
++++ b/source/interface/terminal.c
+@@ -347,7 +347,7 @@ void terminal_printf(
+ 	...)
+ {
+ 	real_argb_color default_terminal_printf_color;
+-	char *arglist;
++    va_list arglist;
+ 
+ 	va_start(arglist, format);
+ 
+diff --git a/source/interface/ui_widget.c b/source/interface/ui_widget.c
+index ef959fa3..513059eb 100644
+--- a/source/interface/ui_widget.c
++++ b/source/interface/ui_widget.c
+@@ -4230,7 +4230,11 @@ void ui_start_main_menu_music(
+ 
+ 		if (sound_definition_index != NONE)
+ 		{
++#ifdef HALO_ANDROID
++			platform_log("starting main menu music");
++#else
+ 			error(_error_silent, "starting main menu music");
++#endif
+ 			scripted_looping_sound_start(sound_definition_index, NONE, 1.0f);
+ 			widget_globals.main_menu_music_active = TRUE;
+ 		}
+@@ -4252,7 +4256,11 @@ void ui_stop_main_menu_music(
+ 
+ 		if (sound_definition_index != NONE)
+ 		{
++#ifdef HALO_ANDROID
++			platform_log("stopping main menu music");
++#else
+ 			error(_error_silent, "stopping main menu music");
++#endif
+ 			scripted_looping_sound_stop(sound_definition_index);
+ 		}
+ 		else
+@@ -4879,9 +4887,17 @@ static void perform_filesystem_initialization(
+ 		"c:\\halo\\SOURCE\\interface\\ui_widget.c",
+ 		5439,
+ 		widget_globals.initialization_thread==NULL);
++#ifdef HALO_ANDROID
++	platform_log("beginning filesystem checks and saved-game enumeration");
++#else
+ 	error(_error_silent, "begining filesystem checks & saved game file enumeration...");
++#endif
+ 	ui_widgets_inhibit_processing(TRUE);
+ 	widget_globals.filesystem_check_result = 0;
++#ifdef HALO_XBOX_UWP
++        filesystem_initialization_thread_proc(NULL);
++	ui_widgets_inhibit_processing(FALSE);
++#else
+ 	if (!create_thread(0, filesystem_initialization_thread_proc, NULL, &widget_globals.initialization_thread))
+ 	{
+ 		error(_error_silent, "failed to spawn thread for filesystem checks - running synchronously!");
+@@ -4889,6 +4905,7 @@ static void perform_filesystem_initialization(
+ 		filesystem_initialization_thread_proc(NULL);
+ 		ui_widgets_inhibit_processing(FALSE);
+ 	}
++#endif
+ 
+ 	return;
+ }
+diff --git a/source/interface/ui_widget_event_handler_functions.c b/source/interface/ui_widget_event_handler_functions.c
+index 41d3e288..e55b0b86 100644
+--- a/source/interface/ui_widget_event_handler_functions.c
++++ b/source/interface/ui_widget_event_handler_functions.c
+@@ -931,6 +931,10 @@ symbols in this file:
+ #include "saved games/saved_game_files.h"
+ #include "text/unicode.h"
+ #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
++#ifdef HALO_XBOX_UWP
++#include "platform.h"
++char const *pc_menu_function_name(long function_index);
++#endif
+ 
+ /* ---------- constants */
+ 
+@@ -2335,6 +2339,37 @@ static boolean main_menu_initialize(
+ 	struct event_record *event,
+ 	boolean *widget_deleted)
+ {
++#ifdef HALO_XBOX_UWP
++        word profile_count = 1;
++	long profile_index = NONE;
++	struct player_profile profile;
++
++	player_profiles_enumerate_available_to_local_player_index(
++		NONE, &profile_count, &profile_index, FALSE);
++	if ((short)profile_count <= 0 || profile_index == NONE ||
++		!player_profile_get(profile_index, &profile))
++	{
++		wchar_t profile_name[128];
++
++		saved_game_file_get_useable_untitled_profile_name(profile_name);
++		profile_index = profile_name[0] ? player_profile_new(0, profile_name) : NONE;
++		if (profile_index != NONE && player_profile_get(profile_index, &profile))
++		{
++			player_ui_set_active_player_profile(0, profile_index, &profile);
++			player_ui_set_single_player_local_player_controller(0, 0);
++			platform_log("menus: created initial local profile index=%ld", profile_index);
++		}
++		else
++		{
++			platform_log("menus: failed to create initial local profile");
++		}
++	}
++	else
++	{
++		player_ui_set_active_player_profile(0, profile_index, &profile);
++		platform_log("menus: selected existing local profile index=%ld", profile_index);
++	}
++#endif
+ 	player_ui_clear_multiplayer_joins();
+ 	player_ui_clear_multiplayer_variant();
+ 	dispose_global_network_game_client();
+@@ -2591,7 +2626,13 @@ static boolean new_campaign_if_no_custom_player_profiles_exist(
+ 	word profile_count = 1;
+ 	long profile_index;
+ 	boolean result;
++#ifdef HALO_XBOX_UWP
++	platform_log("menus: enumerating player profiles");
++#endif
+ 	player_profiles_enumerate_available_to_local_player_index(NONE, &profile_count, &profile_index, FALSE);
++#ifdef HALO_XBOX_UWP
++	platform_log("menus: player profile enumeration returned count=%u index=%ld", profile_count, profile_index);
++#endif
+ 	if ((short)profile_count > 0)
+ 		result = TRUE;
+ 	else
+@@ -3402,12 +3443,28 @@ boolean ui_widget_event_handler_function_invoke(
+ 	{
+ 		extern boolean pc_menu_event_function_invoke(struct widget_instance *widget, struct event_record *event,
+ 			long function_index, boolean *widget_deleted);
+-
+-		return pc_menu_event_function_invoke(widget, event, function_index - PC_MENU_FUNCTION_BASE, widget_deleted);
++		long pc_function_index = function_index - PC_MENU_FUNCTION_BASE;
++
++#ifdef HALO_XBOX_UWP
++		platform_log("menus: invoking port function %ld (%s)", pc_function_index,
++			pc_menu_function_name(pc_function_index) ? pc_menu_function_name(pc_function_index) : "unknown");
++#endif
++		result = pc_menu_event_function_invoke(widget, event, pc_function_index, widget_deleted);
++#ifdef HALO_XBOX_UWP
++		platform_log("menus: port function %ld returned %d", pc_function_index, result);
++#endif
++		return result;
+ 	}
+ 	if ((short)function_index >= 0 && function_index < 102)
+ 	{
++#ifdef HALO_XBOX_UWP
++		platform_log("menus: invoking game function %u (%s)", function_index,
++			event_handler_function_list.names[(short)function_index]);
++#endif
+ 		result = event_handler_function_list.functions[(short)function_index](widget, event, widget_deleted);
++#ifdef HALO_XBOX_UWP
++		platform_log("menus: game function %u returned %d", function_index, result);
++#endif
+ 		if (!result)
+ 			console_warning("event handler '%s' failed", event_handler_function_list.names[(short)function_index]);
+ 		return result;
+diff --git a/source/main/main.c b/source/main/main.c
+index 6b950a3e..d9565f26 100644
+--- a/source/main/main.c
++++ b/source/main/main.c
+@@ -1437,6 +1437,12 @@ static void main_new_map(
+ 	if (game_load(options))
+ 	{
+ 		game_initialize_for_new_map();
++		#if defined(HALO_XBOX_UWP)
++		{
++			void host_log(int priority, const char *text);
++			host_log(4, "guest: main map initialization returned");
++		}
++		#endif
+ 	}
+ 	else
+ 	{
+@@ -1445,7 +1451,19 @@ static void main_new_map(
+ 
+ 	if (!errors_handle())
+ 	{
++		#if defined(HALO_XBOX_UWP)
++		{
++			void host_log(int priority, const char *text);
++			host_log(4, "guest: creating local players");
++		}
++		#endif
+ 		create_local_players();
++		#if defined(HALO_XBOX_UWP)
++		{
++			void host_log(int priority, const char *text);
++			host_log(4, "guest: local players created; starting time");
++		}
++		#endif
+ 		game_time_start();
+ 	}
+ 	else
+@@ -1453,6 +1471,12 @@ static void main_new_map(
+ 		error(_error_immediate, "main_new_map() failed.");
+ 	}
+ 	game_initial_pulse();
++	#if defined(HALO_XBOX_UWP)
++	{
++		void host_log(int priority, const char *text);
++		host_log(4, "guest: initial game pulse complete");
++	}
++	#endif
+ 
+ 	main_globals.reset_map = FALSE;
+ 	main_globals.defer_map_change = FALSE;
+@@ -1468,8 +1492,28 @@ static void main_new_map(
+ 	main_globals.load_core_at_startup = FALSE;
+ 
+ 	if (main_globals.allow_persistent_storage)
++	{
++		#if defined(HALO_XBOX_UWP)
++		{
++			void host_log(int priority, const char *text);
++			host_log(4, "guest: loading campaign persistent storage");
++		}
++		#endif
+ 		game_state_try_and_load_from_persistent_storage();
++		#if defined(HALO_XBOX_UWP)
++		{
++			void host_log(int priority, const char *text);
++			host_log(4, "guest: persistent storage handled");
++		}
++		#endif
++	}
+ 	ui_widgets_disable_pause_game(30);
++	#if defined(HALO_XBOX_UWP)
++	{
++		void host_log(int priority, const char *text);
++		host_log(4, "guest: main_new_map complete");
++	}
++	#endif
+ 
+ 	return;
+ }
+diff --git a/source/memory/lruv_cache.c b/source/memory/lruv_cache.c
+index b02b3f50..bb41b01d 100644
+--- a/source/memory/lruv_cache.c
++++ b/source/memory/lruv_cache.c
+@@ -221,6 +221,8 @@ void lruv_delete(
+ void lruv_idle(
+ 	struct lruv_cache *cache)
+ {
++    if (!cache)
++		return;
+ 	lruv_cache_verify(cache, FALSE);
+ 	cache->tick++;
+ 
+diff --git a/source/saved games/saved_game_files.c b/source/saved games/saved_game_files.c
+index c179191e..6272064c 100644
+--- a/source/saved games/saved_game_files.c	
++++ b/source/saved games/saved_game_files.c	
+@@ -764,6 +764,7 @@ boolean saved_game_file_retrieve_player1_last_used_profile_directory(
+ 		directory_path);
+ 
+ 	if (file_reference_create_from_path(&file, "z:\\lastprof.txt", FALSE) &&
++		file_exists(&file) &&
+ 		file_open(&file, FLAG(_permission_read_bit)))
+ 	{
+ 		success = file_read(&file, MAXIMUM_FILENAME_LENGTH+1, directory_path);
+@@ -777,7 +778,9 @@ boolean saved_game_file_retrieve_player1_last_used_profile_directory(
+ 	}
+ 	else
+ 	{
++#ifndef HALO_ANDROID
+ 		error(_error_silent, "failed to open '%s'", "z:\\lastprof.txt");
++#endif
+ 	}
+ 
+ 	directory_path[MAXIMUM_FILENAME_LENGTH] = 0;
+@@ -826,6 +829,7 @@ boolean saved_game_file_retrieve_last_used_multiplayer_variant_directory(
+ 		directory_path);
+ 
+ 	if (file_reference_create_from_path(&file, "z:\\lastmpvr.txt", FALSE) &&
++		file_exists(&file) &&
+ 		file_open(&file, FLAG(_permission_read_bit)))
+ 	{
+ 		success = file_read(&file, MAXIMUM_FILENAME_LENGTH+1, directory_path);
+@@ -839,7 +843,9 @@ boolean saved_game_file_retrieve_last_used_multiplayer_variant_directory(
+ 	}
+ 	else
+ 	{
++#ifndef HALO_ANDROID
+ 		error(_error_silent, "failed to open '%s'", "z:\\lastmpvr.txt");
++#endif
+ 	}
+ 
+ 	directory_path[MAXIMUM_FILENAME_LENGTH] = 0;
+@@ -888,6 +894,7 @@ boolean saved_game_file_retrieve_last_used_multiplayer_map(
+ 		map_name);
+ 
+ 	if (file_reference_create_from_path(&file, "z:\\lastmpmp.txt", FALSE) &&
++		file_exists(&file) &&
+ 		file_open(&file, FLAG(_permission_read_bit)))
+ 	{
+ 		success = file_read(&file, MAXIMUM_FILENAME_LENGTH+1, map_name);
+@@ -901,7 +908,9 @@ boolean saved_game_file_retrieve_last_used_multiplayer_map(
+ 	}
+ 	else
+ 	{
++#ifndef HALO_ANDROID
+ 		error(_error_silent, "failed to open '%s'", "z:\\lastmpmp.txt");
++#endif
+ 	}
+ 
+ 	map_name[MAXIMUM_FILENAME_LENGTH] = 0;
+diff --git a/source/shell/shell.c b/source/shell/shell.c
+index feb0b44f..172c04f6 100644
+--- a/source/shell/shell.c
++++ b/source/shell/shell.c
+@@ -24,10 +24,12 @@ static boolean application_paused;
+ boolean shell_initialize(
+ 	void)
+ {
++	void host_log(int priority, const char *text);
+ 	boolean success = FALSE;
+ 	boolean platform_initialized = FALSE;
+ 	
+ 	cseries_initialize();
++	host_log(4, "guest: cseries initialized");
+ 	platform_initialized = shell_platform_initialize();
+ 	
+ 	if (platform_initialized)
+@@ -35,7 +37,9 @@ boolean shell_initialize(
+ 		boolean rasterizer_initialized;
+ 		
+ 		errors_initialize();
++		host_log(4, "guest: errors initialized");
+ 		tag_files_open();
++		host_log(4, "guest: tag files opened");
+ 		real_math_initialize();
+ 		game_state_initialize();
+ 		
+diff --git a/source/shell/shell_xbox.c b/source/shell/shell_xbox.c
+index 02695dec..70d17813 100644
+--- a/source/shell/shell_xbox.c
++++ b/source/shell/shell_xbox.c
+@@ -104,14 +104,20 @@ shell_idle(
+ int main(
+ 	void)
+ {
++	void host_log(int priority, const char *text);
++	host_log(4, "guest: main entered");
+ 	fuck_code_in_the_eye();
++	host_log(4, "guest: module protection complete");
+ 	rasterizer_preinitialize__fill_you_up_with_the_devils_cock();
++	host_log(4, "guest: rasterizer preinitialize complete");
+ 	physical_memory_allocate();
++	host_log(4, "guest: physical memory allocated");
+ 
+ 	__try
+ 	{
+ 		if (shell_initialize())
+ 		{
++			host_log(4, "guest: shell initialized");
+ 			main_loop();
+ 			shell_dispose();
+ 		}
+diff --git a/tools/android_imports.py b/tools/android_imports.py
+index 308fe1fa..10848873 100644
+--- a/tools/android_imports.py
++++ b/tools/android_imports.py
+@@ -7,7 +7,7 @@ host's 64-bit function address from __host_import_table and branches to it.
+ The arguments are left untouched in their registers; the host fills in the
+ table when it loads the image (port/android/host/host_loader.c).
+ 
+-Usage: android_imports.py [--host-table table.c] output.s list...
++Usage: android_imports.py [--arch aarch64|x86_64] [--host-table table.c] output.s list...
+ 
+ With --host-table, also writes the host's name-to-function table for the
+ names in the lists (OpenGL names, which the host resolves at run time, are
+@@ -20,6 +20,10 @@ import sys
+ def main():
+     arguments = sys.argv[1:]
+     host_table = None
++    architecture = "aarch64"
++    if arguments[0] == "--arch":
++        architecture = arguments[1]
++        arguments = arguments[2:]
+     if arguments[0] == "--host-table":
+         host_table = arguments[1]
+         arguments = arguments[2:]
+@@ -31,17 +35,64 @@ def main():
+             if line and line not in names:
+                 names.append(line)
+     out = ["/* generated by tools/android_imports.py; do not edit */", "\t.text"]
++    stack_getter_offset = len(names) * 8
+     for index, name in enumerate(names):
+         offset = index * 8
+-        out += [
+-            f"\t.globl {name}",
+-            f"\t.type {name},%function",
+-            "\t.p2align 2",
+-            f"{name}:",
+-            f"\tadrp x16, __host_import_table+{offset}",
+-            f"\tldr x16, [x16, :lo12:__host_import_table+{offset}]",
+-            "\tbr x16",
+-        ]
++        common = [f"\t.globl {name}", f"\t.type {name},%function"]
++        if architecture == "aarch64":
++            out += common + [
++                "\t.p2align 2", f"{name}:",
++                f"\tadrp x16, __host_import_table+{offset}",
++                f"\tldr x16, [x16, :lo12:__host_import_table+{offset}]", "\tbr x16",
++            ]
++        elif architecture == "x86_64":
++            out += common + [
++                "\t.p2align 4", f"{name}:",
++                "\tpushq %rbx",
++                "\tpushq %rbp",
++                "\tpushq %r12",
++                "\tpushq %r13",
++                "\tpushq %r14",
++                "\tpushq %r15",
++                "\tpushq %rax",
++                "\tpushq %rdi",
++                "\tpushq %rsi",
++                "\tpushq %rdx",
++                "\tpushq %rcx",
++                "\tpushq %r8",
++                "\tpushq %r9",
++                f"\tcall *__host_import_table+{stack_getter_offset}(%rip)",
++                "\tmovq %rax, %r11",
++                "\tpopq %r9",
++                "\tpopq %r8",
++                "\tpopq %rcx",
++                "\tpopq %rdx",
++                "\tpopq %rsi",
++                "\tpopq %rdi",
++                "\tpopq %rax",
++                "\tmovq %rsp, %r14",
++            ]
++            for stack_argument in range(16):
++                guest_offset = 56 + stack_argument * 8
++                native_offset = stack_argument * 8
++                out += [
++                    f"\tmovq {guest_offset}(%r14), %r10",
++                    f"\tmovq %r10, {native_offset}(%r11)",
++                ]
++            out += [
++                "\tmovq %r11, %rsp",
++                f"\tcall *__host_import_table+{offset}(%rip)",
++                "\tmovq %r14, %rsp",
++                "\tpopq %r15",
++                "\tpopq %r14",
++                "\tpopq %r13",
++                "\tpopq %r12",
++                "\tpopq %rbp",
++                "\tpopq %rbx",
++                "\tretq",
++            ]
++        else:
++            raise SystemExit(f"unsupported import-stub architecture: {architecture}")
+     out += [
+         "\t.section .rodata",
+         "\t.globl __host_import_names",
+@@ -57,7 +108,7 @@ def main():
+         "\t.p2align 3",
+         "\t.globl __host_import_table",
+         "__host_import_table:",
+-        f"\t.zero {max(len(names), 1) * 8}",
++        f"\t.zero {max(len(names) + 1, 1) * 8}",
+     ]
+     with open(output, "w", encoding="utf-8") as f:
+         f.write("\n".join(out) + "\n")
+@@ -66,7 +117,8 @@ def main():
+         table = ["/* generated by tools/android_imports.py; do not edit */",
+                  "#include <string.h>", ""]
+         def symbol(n):
+-            # hostposix_<name> imports port/linux/src/posix.h's posix_<name>
++            if architecture == "x86_64":
++                return n
+             return "posix_" + n[len("hostposix_"):] if n.startswith("hostposix_") else n
+         table += [f"extern void {symbol(n)}(void);" for n in host_names]
+         table += ["", "static const struct { const char *name; void *function; } imports[] =", "{"]
+diff --git a/tools/port_settings.py b/tools/port_settings.py
+index f453b3af..44a840a2 100644
+--- a/tools/port_settings.py
++++ b/tools/port_settings.py
+@@ -46,23 +46,23 @@ SCREENS = {
+             # (port/linux/game/menu_tags.c adds the display's resolutions)
+             ("RESOLUTION:", "display.resolution", [("NATIVE", "native")],
+              "What fullscreen and borderless draw at. Fullscreen\nsets the display to it; borderless scales it.",
+-             "desktop"),
++             None),
+             # (port/linux/game/menu_tags.c puts the sizes that fit the desktop
+             # in place of this one)
+             ("WINDOW SIZE:", "display.window_size", [("1280 x 960", "1280x960")],
+              "The window's size: 4:3, then 16:10, 16:9 and 21:9\n(its edges can also be dragged).", "desktop"),
+             ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
+-             "Native draws at the resolution; Original draws\nthe Xbox's 640x480 and scales it up.", "desktop"),
++             "Native draws at the resolution; Original draws\nthe Xbox's 640x480 and scales it up.", None),
+             ("V-SYNC:", "display.vsync", ON_OFF,
+              "Wait for the display between frames, so that the\npicture never tears.", None),
+             ("FRAME RATE LIMIT:", "display.max_fps",
+              [("AUTO", "0"), ("30", "30"), ("60", "60"), ("120", "120"), ("144", "144"), ("165", "165"),
+               ("240", "240"), ("NONE", "-1")],
+-             "With V-Sync off, the most frames a second. Auto:\ntwice the display's refresh rate.", "desktop"),
++             "With V-Sync off, the most frames a second. Auto:\ntwice the display's refresh rate.", None),
+             ("SMOOTH MOTION:", "display.interpolation", ON_OFF,
+              "Draw a frame for every display refresh, blending\nbetween the game's 30 ticks a second.", None),
+             ("INSTANT AIM:", "display.direct_camera", ON_OFF,
+-             "In first person, turn the view the moment the\nmouse moves, not up to two ticks later.", "desktop"),
++             "In first person, turn the view as input changes,\nnot up to two ticks later.", None),
+             ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
+              "Draw the HUD from the high-res redraws; off\ndraws the game's own pictures.", None),
+             ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,

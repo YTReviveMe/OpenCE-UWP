@@ -3,8 +3,8 @@
 .vs/
 
 # Caches
-__pycache__
-.mypy_cache
+__pycache__/
+.mypy_cache/
 .cache/
 
 # Build files
@@ -15,18 +15,25 @@ build.ninja
 # Generated configs
 compile_commands.json
 
-# The January build and the Xbox SDK (tools/xdk_headers.py reads the
-# build's PDB); never commit
+# The January build and the Xbox SDK
 *.exe
 *.pdb
 xbox/
 !source/**/xbox/
 
-# Locally extracted proprietary game data (never commit)
+# Locally extracted proprietary game data
 assets/
-# (but the high-res assets, drawn for the port: tools/hud_assets.py)
 !port/assets/
 original/
 
-# CI build outputs (tools/ci_build.py)
+# CI build outputs
 dist/
+
+# UWP working files
+upstream/
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+*.cer
+*.pfx
