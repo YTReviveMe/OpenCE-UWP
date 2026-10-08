@@ -38,7 +38,7 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: UWP-Auto
 
@@ -108,9 +108,9 @@ jobs:
           $manifest = $manifest -replace 'Version="\d+\.\d+\.\d+\.\d+"', 'Version="${{ steps.release.outputs.version }}"'
           [IO.File]::WriteAllText($manifestPath, $manifest, $utf8)
           $hostPath = 'upstream\port\xbox\host\host_main.cpp'
-          $host = Get-Content $hostPath -Raw
-          $host = $host -replace 'OpenCE UWP x64 host \d+\.\d+\.\d+\.\d+ starting', 'OpenCE UWP x64 host ${{ steps.release.outputs.version }} starting'
-          [IO.File]::WriteAllText($hostPath, $host, $utf8)
+          $hostSource = Get-Content $hostPath -Raw
+          $hostSource = $hostSource -replace 'OpenCE UWP x64 host \d+\.\d+\.\d+\.\d+ starting', 'OpenCE UWP x64 host ${{ steps.release.outputs.version }} starting'
+          [IO.File]::WriteAllText($hostPath, $hostSource, $utf8)
 
       - name: Build UWP
         if: steps.gate.outputs.build == 'true'
