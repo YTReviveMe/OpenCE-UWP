@@ -64,6 +64,7 @@ def main():
         "    else { typedef const GLubyte *(APIENTRY *p_t)(GLenum); static p_t p; if (!p) p=(p_t)SDL_GL_GetProcAddress(\"glGetString\"); if (p) text=p(name); }",
         "    if (size) { buffer[0]=0; if (text) { strncpy(buffer,(const char *)text,size-1); buffer[size-1]=0; } }", "}",
         "int GUEST_ABI host_gl_has_extension(const char *name) { (void)name; return 0; }",
+        "uint32_t GUEST_ABI host_gl_read_buffer(uint32_t buffer, uint32_t offset) { (void)buffer; (void)offset; return 0; }",
         "uint32_t GUEST_ABI host_gl_read_buffer_word(uint32_t buffer, uint32_t offset) { (void)buffer; (void)offset; return 0; }",
         "void GUEST_ABI host_gl_buffer_write(uint32_t target,uint32_t offset,uint32_t size,const void *data) { typedef void(APIENTRY*p_t)(GLenum,GLintptr,GLsizeiptr,const void*); static p_t p; if(!p)p=(p_t)SDL_GL_GetProcAddress(\"glBufferSubData\"); if(p)p(target,offset,size,data); }",
         "void GUEST_ABI host_gl_fence_frame(uint32_t slot) { (void)slot; }",
