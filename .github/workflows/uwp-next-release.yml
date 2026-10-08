@@ -1,0 +1,20 @@
+name: UWP Next Release
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: uwp-next-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: YTReviveMe/OpenCE-UWP/.github/workflows/uwp-auto.yml@UWP-Auto
+    with:
+      publish: true
+    secrets: inherit
