@@ -1,6 +1,8 @@
 param(
     [string]$UwpDeps = 'C:\bsuwp\_deps\uwpdep-src',
-    [int]$Jobs = 12
+    [int]$Jobs = 12,
+    [string]$HostCCompiler = 'clang-cl',
+    [string]$HostCxxCompiler = 'clang-cl'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,8 +28,8 @@ try {
 $msvc = Join-Path $PSScriptRoot 'with-msvc.ps1'
 & $msvc cmake --fresh -S (Join-Path $source 'port\xbox') `
     -B (Join-Path $source 'build\xbox-uwp') -G Ninja `
-    -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl `
-    -DCMAKE_CXX_COMPILER=clang-cl "-DUWP_DEPS=$UwpDeps"
+    -DCMAKE_BUILD_TYPE=Release "-DCMAKE_C_COMPILER=$HostCCompiler" `
+    "-DCMAKE_CXX_COMPILER=$HostCxxCompiler" "-DUWP_DEPS=$UwpDeps"
 if ($LASTEXITCODE) { throw 'Host configuration failed.' }
 & $msvc cmake --build (Join-Path $source 'build\xbox-uwp') -j $Jobs
 if ($LASTEXITCODE) { throw 'Host build failed.' }

@@ -107,6 +107,7 @@ jobs:
           if (-not $build) { Write-Output 'No unpublished OpenCE update is eligible.' }
 
       - name: Verify toolchain
+        id: system_llvm
         if: steps.gate.outputs.build == 'true'
         shell: pwsh
         run: |
@@ -115,6 +116,7 @@ jobs:
           cmake --version
           clang --version
           clang-cl --version
+          "clang_cl=$((Get-Command clang-cl).Source)" | Out-File $env:GITHUB_OUTPUT -Append
 
       - name: Install LLVM 19.1.3
         if: steps.gate.outputs.build == 'true'
@@ -186,7 +188,9 @@ jobs:
           $log = Join-Path $env:RUNNER_TEMP 'uwp-build.log'
           $ErrorActionPreference = 'Continue'
           & pwsh -NoProfile -File .\tools\build.ps1 `
-              -UwpDeps "$env:GITHUB_WORKSPACE\uwp-deps" -Jobs 4 2>&1 |
+              -UwpDeps "$env:GITHUB_WORKSPACE\uwp-deps" -Jobs 4 `
+              -HostCCompiler '${{ steps.system_llvm.outputs.clang_cl }}' `
+              -HostCxxCompiler '${{ steps.system_llvm.outputs.clang_cl }}' 2>&1 |
               Tee-Object -FilePath $log
           $succeeded = $LASTEXITCODE -eq 0
           "succeeded=$($succeeded.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
