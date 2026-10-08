@@ -184,6 +184,7 @@ jobs:
           HALO_XBOX_GLES_INCLUDE: ${{ github.workspace }}\gl-headers\api
         run: |
           $log = Join-Path $env:RUNNER_TEMP 'uwp-build.log'
+          $ErrorActionPreference = 'Continue'
           & pwsh -NoProfile -File .\tools\build.ps1 `
               -UwpDeps "$env:GITHUB_WORKSPACE\uwp-deps" -Jobs 4 2>&1 |
               Tee-Object -FilePath $log
@@ -191,7 +192,7 @@ jobs:
           "succeeded=$($succeeded.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
 
       - name: Report UWP build failure
-        if: steps.uwp_build.outputs.succeeded != 'true'
+        if: always() && steps.gate.outputs.build == 'true' && steps.uwp_build.outputs.succeeded != 'true'
         shell: pwsh
         run: |
           $log = Join-Path $env:RUNNER_TEMP 'uwp-build.log'
