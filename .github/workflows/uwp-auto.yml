@@ -1,6 +1,11 @@
 name: UWP Auto
 
 on:
+  workflow_call:
+    inputs:
+      publish:
+        type: boolean
+        default: false
   push:
     branches: [UWP-Auto]
     paths:
@@ -19,9 +24,6 @@ on:
         required: true
         type: boolean
         default: false
-  schedule:
-    - cron: "*/10 * * * *"
-
 permissions:
   contents: write
 
@@ -77,7 +79,7 @@ jobs:
         env:
           EXISTS: ${{ steps.release.outputs.exists }}
         run: |
-          $automated = '${{ github.event_name }}' -in 'push', 'schedule'
+          $automated = '${{ github.event_name }}' -in 'push', 'workflow_call'
           $build = -not ($automated -and $env:EXISTS -eq 'true')
           "build=$($build.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
           if (-not $build) { Write-Output 'No unpublished OpenCE update is eligible.' }
@@ -240,7 +242,6 @@ jobs:
         if: >-
           steps.gate.outputs.build == 'true' &&
           ((github.event_name == 'push') ||
-           (github.event_name == 'schedule') ||
            (inputs.publish == true))
         shell: pwsh
         env:
