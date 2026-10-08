@@ -96,7 +96,7 @@ jobs:
           EXISTS: ${{ steps.release.outputs.exists }}
           COMPLETE: ${{ steps.release.outputs.complete }}
         run: |
-          $automated = '${{ github.event_name }}' -in 'schedule', 'workflow_call'
+          $automated = '${{ github.event_name }}' -in 'push', 'schedule', 'workflow_call'
           $minimumBuild = [int]'${{ inputs.minimum_build }}'
           $oneShot = '${{ inputs.one_shot }}' -eq 'true'
           $buildNumber = [int]'${{ steps.release.outputs.build }}'
@@ -263,7 +263,8 @@ jobs:
       - name: Publish release
         if: >-
           steps.gate.outputs.build == 'true' &&
-          ((github.event_name == 'schedule') ||
+          ((github.event_name == 'push') ||
+           (github.event_name == 'schedule') ||
            (inputs.publish == true))
         shell: pwsh
         env:
