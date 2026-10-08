@@ -1,0 +1,182 @@
+name: UWP Auto
+
+on:
+  push:
+    branches: [UWP-Auto]
+    paths:
+      - ".github/workflows/uwp-auto.yml"
+      - "patches/**"
+      - "tools/**"
+      - "UWP/**"
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "OpenCE release tag; blank selects the latest build-* tag"
+        required: false
+        default: ""
+      publish:
+        description: "Publish the completed package as a GitHub release"
+        required: true
+        type: boolean
+        default: false
+  schedule:
+    - cron: "23 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: uwp-auto
+  cancel-in-progress: false
+
+env:
+  UWP_DEPS_REPOSITORY: https://github.com/worleydl/uwp-dep.git
+  UWP_DEPS_COMMIT: 3960693ee292522a5bcb58bc7d4136a0bb8864af
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: UWP-Auto
+
+      - name: Select OpenCE release
+        id: release
+        shell: pwsh
+        env:
+          REQUESTED_TAG: ${{ inputs.upstream_tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $release = .\tools\resolve_uwp_release.ps1 -Tag $env:REQUESTED_TAG | ConvertFrom-Json
+          $releaseTag = "uwp-$($release.Tag)"
+          & gh release view $releaseTag --repo $env:GITHUB_REPOSITORY *> $null
+          $exists = $LASTEXITCODE -eq 0
+          "tag=$($release.Tag)" | Out-File $env:GITHUB_OUTPUT -Append
+          "commit=$($release.Commit)" | Out-File $env:GITHUB_OUTPUT -Append
+          "build=$($release.Build)" | Out-File $env:GITHUB_OUTPUT -Append
+          "version=$($release.Version)" | Out-File $env:GITHUB_OUTPUT -Append
+          "release_tag=$releaseTag" | Out-File $env:GITHUB_OUTPUT -Append
+          "exists=$($exists.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Stop when already published
+        id: gate
+        shell: pwsh
+        env:
+          EXISTS: ${{ steps.release.outputs.exists }}
+        run: |
+          $scheduled = '${{ github.event_name }}' -eq 'schedule'
+          $build = -not ($scheduled -and $env:EXISTS -eq 'true')
+          "build=$($build.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
+          if (-not $build) { Write-Output '${{ steps.release.outputs.release_tag }} is already published.' }
+
+      - name: Verify toolchain
+        if: steps.gate.outputs.build == 'true'
+        shell: pwsh
+        run: |
+          py -3 --version
+          ninja --version
+          cmake --version
+          clang-cl --version
+
+      - name: Fetch UWP dependencies
+        if: steps.gate.outputs.build == 'true'
+        shell: pwsh
+        run: |
+          git clone --filter=blob:none --branch pd $env:UWP_DEPS_REPOSITORY uwp-deps
+          git -C uwp-deps checkout --detach $env:UWP_DEPS_COMMIT
+          if ((git -C uwp-deps rev-parse HEAD) -ne $env:UWP_DEPS_COMMIT) {
+              throw 'Unexpected UWP dependency revision.'
+          }
+
+      - name: Prepare OpenCE source
+        if: steps.gate.outputs.build == 'true'
+        shell: pwsh
+        run: |
+          .\tools\setup_upstream.ps1 -Revision '${{ steps.release.outputs.tag }}'
+          $utf8 = [Text.UTF8Encoding]::new($false)
+          $manifestPath = 'upstream\port\xbox\Package.appxmanifest'
+          $manifest = Get-Content $manifestPath -Raw
+          $manifest = $manifest -replace 'Version="\d+\.\d+\.\d+\.\d+"', 'Version="${{ steps.release.outputs.version }}"'
+          [IO.File]::WriteAllText($manifestPath, $manifest, $utf8)
+          $hostPath = 'upstream\port\xbox\host\host_main.cpp'
+          $host = Get-Content $hostPath -Raw
+          $host = $host -replace 'OpenCE UWP x64 host \d+\.\d+\.\d+\.\d+ starting', 'OpenCE UWP x64 host ${{ steps.release.outputs.version }} starting'
+          [IO.File]::WriteAllText($hostPath, $host, $utf8)
+
+      - name: Build UWP
+        if: steps.gate.outputs.build == 'true'
+        shell: pwsh
+        run: .\tools\build.ps1 -UwpDeps "$env:GITHUB_WORKSPACE\uwp-deps"
+
+      - name: Import signing certificate
+        if: steps.gate.outputs.build == 'true'
+        id: signing
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.UWP_SIGNING_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.UWP_SIGNING_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PFX_BASE64)) {
+              Write-Warning 'No persistent signing certificate configured; this test build will use a temporary certificate.'
+              "persistent=false" | Out-File $env:GITHUB_OUTPUT -Append
+              exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'OpenCE-UWP.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_BASE64))
+          $password = ConvertTo-SecureString $env:PFX_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password -Exportable
+          if ($certificate.Subject -ne 'CN=ReviveMe') { throw 'The signing certificate publisher must be CN=ReviveMe.' }
+          "thumbprint=$($certificate.Thumbprint)" | Out-File $env:GITHUB_OUTPUT -Append
+          "pfx=$pfx" | Out-File $env:GITHUB_OUTPUT -Append
+          "persistent=true" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Package UWP
+        if: steps.gate.outputs.build == 'true'
+        shell: pwsh
+        run: |
+          $output = "dist\OpenCE-UWP-${{ steps.release.outputs.version }}"
+          .\tools\make_release.ps1 -OutputDirectory $output
+          $archive = "$output.zip"
+          Compress-Archive -Path "$output\*" -DestinationPath $archive -CompressionLevel Optimal
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash
+          "$hash  $([IO.Path]::GetFileName($archive))" | Set-Content "$archive.sha256" -Encoding Ascii
+
+      - name: Remove signing certificate
+        if: always() && steps.signing.outputs.persistent == 'true'
+        shell: pwsh
+        run: |
+          Remove-Item "Cert:\CurrentUser\My\${{ steps.signing.outputs.thumbprint }}" -ErrorAction SilentlyContinue
+          Remove-Item '${{ steps.signing.outputs.pfx }}' -Force -ErrorAction SilentlyContinue
+
+      - name: Upload test artifact
+        if: steps.gate.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenCE-UWP-${{ steps.release.outputs.version }}
+          path: |
+            dist/OpenCE-UWP-${{ steps.release.outputs.version }}.zip
+            dist/OpenCE-UWP-${{ steps.release.outputs.version }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish release
+        if: >-
+          steps.gate.outputs.build == 'true' &&
+          ((github.event_name == 'schedule') ||
+           (github.event_name == 'workflow_dispatch' && inputs.publish == true))
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ('${{ steps.signing.outputs.persistent }}' -ne 'true') {
+              throw 'A persistent signing certificate is required to publish a release.'
+          }
+          $archive = 'dist\OpenCE-UWP-${{ steps.release.outputs.version }}.zip'
+          & gh release create '${{ steps.release.outputs.release_tag }}' `
+            $archive "$archive.sha256" `
+            --repo $env:GITHUB_REPOSITORY `
+            --target UWP-Auto `
+            --title 'OpenCE UWP ${{ steps.release.outputs.version }}' `
+            --notes 'Built from OpenCE ${{ steps.release.outputs.tag }} (${{ steps.release.outputs.commit }}).'
