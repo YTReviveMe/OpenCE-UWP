@@ -51,8 +51,15 @@ jobs:
         run: |
           $release = .\tools\resolve_uwp_release.ps1 -Tag $env:REQUESTED_TAG | ConvertFrom-Json
           $releaseTag = "uwp-$($release.Tag)"
-          & gh release view $releaseTag --repo $env:GITHUB_REPOSITORY *> $null
-          $exists = $LASTEXITCODE -eq 0
+          $headers = @{
+              Accept = 'application/vnd.github+json'
+              Authorization = "Bearer $env:GH_TOKEN"
+              'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$releaseTag"
+          $response = Invoke-WebRequest -Uri $uri -Headers $headers -SkipHttpErrorCheck
+          if ($response.StatusCode -notin 200, 404) { throw "GitHub release check failed: $($response.StatusCode)" }
+          $exists = $response.StatusCode -eq 200
           "tag=$($release.Tag)" | Out-File $env:GITHUB_OUTPUT -Append
           "commit=$($release.Commit)" | Out-File $env:GITHUB_OUTPUT -Append
           "build=$($release.Build)" | Out-File $env:GITHUB_OUTPUT -Append
