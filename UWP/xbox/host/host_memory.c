@@ -278,6 +278,11 @@ void GUEST_ABI host_memory_watch_initialize(void)
     watch_refresh();
 }
 
+void GUEST_ABI host_memory_watch_begin_frame(void)
+{
+    watch_refresh();
+}
+
 void GUEST_ABI host_memory_watch_protect(uint32_t address, uint32_t size)
 {
     (void)address;
