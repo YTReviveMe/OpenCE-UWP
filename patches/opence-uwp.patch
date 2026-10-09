@@ -812,14 +812,13 @@ index 58130ee4..c08938c3 100644
  #else
  int platform_display_resolutions(long *widths, long *heights, int maximum)
  {
-@@ -663,6 +723,7 @@ int platform_window_sizes(long *widths, long *heights, int maximum)
+@@ -663,5 +723,6 @@ int platform_window_sizes(long *widths, long *heights, int maximum)
  	(void)maximum;
  	return 0;
  }
 +#endif
  
  #endif
- #ifndef HALO_ANDROID
 @@ -796,7 +857,27 @@ void platform_video_drawable_size(int *width, int *height)
  	SDL_GetWindowSizeInPixels(platform_window, width, height);
  }

@@ -15,7 +15,8 @@ from .android_build import (EXPAT_DIR, EXPAT_SOURCES, KCP_DIR, MONOCYPHER_DIR,
 from .embed_assets import hud_assets_build, hud_configure_inputs
 from .linux_build import (LINUX_PROFILE, XDK_INCLUDE, compile_launcher,
                           game_defines_and_includes, game_sources,
-                          musl_math_sources, pgo_mode, pgo_profile,
+                          musl_math_sources, opus_cflags, opus_sources,
+                          pgo_mode, pgo_profile,
                           profile_use_flags, xdk_headers)
 from .ninja_syntax import Writer
 
@@ -248,6 +249,10 @@ def generate_xbox_build(n: Writer, sln: Any) -> None:
     for name in EXPAT_SOURCES:
         objects.append(guest_object(EXPAT_DIR / name, platform_cflags))
     objects.append(guest_object(KCP_DIR / "ikcp.c", platform_cflags))
+    for source in opus_sources():
+        objects.append(guest_object(source, " ".join([
+            opus_cflags(guest_abi), "-U__SSE__", *libc_includes,
+        ])))
     for name in ("monocypher.c", "monocypher-ed25519.c"):
         objects.append(guest_object(MONOCYPHER_DIR / name, platform_cflags))
     for name in ZLIB_SOURCES:

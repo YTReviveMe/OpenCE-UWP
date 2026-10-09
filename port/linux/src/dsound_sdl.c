@@ -37,9 +37,11 @@ turns the reverb off; audio.enabled = false skips opening a device
 #include "platform.h"
 #include "sdl_platform.h"
 #include "port_config.h"
+#include "voice_audio.h"
 
 #include <SDL3/SDL.h>
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -54,9 +56,9 @@ turns the reverb off; audio.enabled = false skips opening a device
 #define XBOX_ADPCM_BLOCK_SAMPLES 64
 
 /* the resampler (resampling) */
-#define RESAMPLER_ZERO_CROSSINGS 16
+#define RESAMPLER_ZERO_CROSSINGS 24
 #define RESAMPLER_TABLE_STEPS 256
-#define RESAMPLER_CUTOFF 0.88
+#define RESAMPLER_CUTOFF 0.96
 #define RESAMPLER_KAISER_BETA 6.5
 #define RESAMPLER_MAXIMUM_STRETCH 2
 #define RESAMPLER_HISTORY 128
@@ -91,6 +93,13 @@ struct sdl_stream
 	/* 2D gains */
 	float volume;             /* SetVolume */
 	float mix_left, mix_right;
+	/* a stereo voice of a sound in the world: panned towards it, -1 left
+	to 1 right, its distance, and the fade of its volume with distance that
+	the game made (dsound_sdl_stream_set_stereo_position) */
+	BOOL stereo_positioned;
+	float stereo_pan;
+	float stereo_distance;
+	float stereo_distance_fade;
 	float headroom;
 
 	/* 3D */
@@ -399,6 +408,36 @@ static void voice_gains(const struct sdl_stream *stream, float *left, float *rig
 				*room_lowpass = lowpass_coefficient(gain_from_millibels(high_level - level), cosine);
 		}
 	}
+	else if (stream->channels == 2 && stream->stereo_positioned)
+	{
+		/* the equal power pan of a 3D voice, at the gains of a 2D one when
+		centred (the game fades it with distance), its direct path muffled
+		and its room send made as a 3D voice's are (SetI3DL2Source) */
+		float angle = (stream->stereo_pan + 1.0f) * 0.25f * 3.14159265f;
+		float direct = gain_from_millibels(stream->direct);
+		float cosine = frequency_cosine(environment.flHFReference);
+
+		*left = cosf(angle) * 1.41421356f * stream->mix_left * direct;
+		*right = sinf(angle) * 1.41421356f * stream->mix_right * direct;
+		if (stream->direct_hf < stream->direct)
+			*direct_lowpass = lowpass_coefficient(gain_from_millibels(stream->direct_hf - stream->direct), cosine);
+		if (reverb_enabled)
+		{
+			LONG level = environment.lRoom + stream->room;
+			LONG high_level = environment.lRoom + environment.lRoomHF + stream->room_hf;
+
+			/* the room's rolloff with distance, a 3D voice's; the volume
+			holds the game's fade with it, which a 3D voice's room send does
+			not take, so it is taken back out (no further than a twentieth:
+			past that the send fades out with the sound) */
+			*room = gain_from_millibels(level) *
+				distance_attenuation(stream, stream->stereo_distance,
+					environment.flRoomRolloffFactor + stream->room_rolloff_factor) /
+				(stream->stereo_distance_fade > 0.05f ? stream->stereo_distance_fade : 0.05f);
+			if (*room > 0.0f && high_level < level)
+				*room_lowpass = lowpass_coefficient(gain_from_millibels(high_level - level), cosine);
+		}
+	}
 	else
 	{
 		*left = stream->mix_left;
@@ -414,9 +453,11 @@ static void voice_gains(const struct sdl_stream *stream, float *left, float *rig
 Each voice is resampled to the output rate by band-limited interpolation (J.
 O. Smith's): an output sample is the source frames around its moment, each
 weighted by a windowed sinc low pass centred there. The low pass keeps
-RESAMPLER_CUTOFF of the source's band and takes the images of it out (65 dB
-down): linear interpolation, which the mixer did before, left them only 8 to
-20 dB down, a gritty haze above 11 kHz over every 22 kHz voice. A voice
+RESAMPLER_CUTOFF of the source's band (a 22 kHz voice is 0.5 dB down at 10
+kHz) and takes the images of it out (80 dB down), but for those of its last
+few hundred hertz, which lie beside them, about 20 dB down. Linear
+interpolation, which the mixer did before, left the images only 8 to 20 dB
+down, a gritty haze above 11 kHz over every 22 kHz voice. A voice
 played faster than the output rate takes its frames (a step over 1) gets the
 low pass narrowed to match, up to RESAMPLER_MAXIMUM_STRETCH times, so it
 does not alias. The frames come from the voice's packets in turn, so the low
@@ -552,6 +593,8 @@ static void mix_voice(struct sdl_stream *stream, float *output, float *send, uns
 	float ramp_direct_lowpass, ramp_room_lowpass;
 	long width;
 	unsigned long frame;
+	/* (a stereo voice panned towards its sound: voice_gains) */
+	BOOL positioned = stream->channels == 2 && stream->stereo_positioned;
 
 	if (stream->paused || !stream->packet_count || !stream->sample_rate)
 		return;
@@ -662,6 +705,18 @@ static void mix_voice(struct sdl_stream *stream, float *output, float *send, uns
 		{
 			output[frame * 2] += sample_left * left;
 			output[frame * 2 + 1] += sample_left * right;
+		}
+		else if (positioned)
+		{
+			/* the channels' middle panned, and their difference kept as
+			wide as the far ear's gain: the sound comes from where it is,
+			still stereo */
+			float middle = 0.5f * (sample_left + sample_right);
+			float side = 0.5f * (sample_left - sample_right);
+			float far_gain = left < right ? left : right;
+
+			output[frame * 2] += middle * left + side * far_gain;
+			output[frame * 2 + 1] += middle * right - side * far_gain;
 		}
 		else
 		{
@@ -1090,6 +1145,8 @@ static void mix(float *output, unsigned long frames)
 		if ((!enabled && reverb.level <= 0.0f) || reverb.quiet > REVERB_QUIET_FRAMES)
 			reverb_clear();
 	}
+	/* the players' voices (voice_audio.c), dry, under the limiter */
+	voice_audio_mix(output, frames);
 	limit(output, frames);
 }
 
@@ -1097,6 +1154,17 @@ static void mix(float *output, unsigned long frames)
 
 static SDL_AudioStream *audio_stream;
 static BOOL audio_started = FALSE;
+/* the device it plays on (audio.output_device), and when it was looked at */
+static char audio_device_name[PLATFORM_AUDIO_DEVICE_NAME_SIZE];
+static unsigned long audio_device_read_at = (unsigned long)-1;
+
+/* audio.output_device ("default": the system's; none on Android) */
+static const char *audio_device_setting(void)
+{
+	const char *name = config_string("audio.output_device");
+
+	return name && name[0] ? name : "default";
+}
 
 static void SDLCALL audio_callback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
 {
@@ -1167,7 +1235,12 @@ static void audio_start(void)
 #else
 		SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "512");
 #endif
-		audio_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, audio_callback, NULL);
+		snprintf(audio_device_name, sizeof(audio_device_name), "%s", audio_device_setting());
+		audio_device_read_at = config_changes();
+		audio_stream = SDL_OpenAudioDeviceStream(platform_audio_device(FALSE, audio_device_name), &spec,
+			audio_callback, NULL);
+		if (!audio_stream && strcmp(audio_device_name, "default"))
+			audio_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, audio_callback, NULL);
 		if (audio_stream)
 		{
 			SDL_ResumeAudioStreamDevice(audio_stream);
@@ -1178,6 +1251,44 @@ static void audio_start(void)
 	{
 		pthread_t thread;
 
+		pthread_create(&thread, NULL, silent_clock_thread, NULL);
+		pthread_detach(thread);
+	}
+}
+
+/* (the event thread, each frame: sdl_platform.c) audio.output_device
+changed (Settings > Audio): the sound goes on on the new device, else the
+system's default */
+void dsound_sdl_output_device_check(void)
+{
+	SDL_AudioSpec spec;
+	SDL_AudioStream *stream;
+
+	if (!audio_stream || audio_device_read_at == config_changes())
+		return;
+	audio_device_read_at = config_changes();
+	if (!strcmp(audio_device_name, audio_device_setting()))
+		return;
+	snprintf(audio_device_name, sizeof(audio_device_name), "%s", audio_device_setting());
+	spec.format = SDL_AUDIO_F32;
+	spec.channels = OUTPUT_CHANNELS;
+	spec.freq = OUTPUT_RATE;
+	SDL_DestroyAudioStream(audio_stream);
+	stream = SDL_OpenAudioDeviceStream(platform_audio_device(FALSE, audio_device_name), &spec, audio_callback, NULL);
+	if (!stream)
+		stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, audio_callback, NULL);
+	audio_stream = stream;
+	if (audio_stream)
+	{
+		SDL_ResumeAudioStreamDevice(audio_stream);
+		platform_log("audio: playing on %s", audio_device_name);
+	}
+	else
+	{
+		pthread_t thread;
+
+		/* (none at all: the voices drained in real time, as at the start) */
+		platform_log("audio: cannot open an audio device (%s); sound is silent", SDL_GetError());
 		pthread_create(&thread, NULL, silent_clock_thread, NULL);
 		pthread_detach(thread);
 	}
@@ -1360,8 +1471,33 @@ static HRESULT STDMETHODCALLTYPE stream_flush(IDirectSoundStream *object)
 	}
 	stream->cursor = 0;
 	resampler_reset(stream);
+	/* (the next sound on the channel says where it is) */
+	stream->stereo_positioned = FALSE;
 	pthread_mutex_unlock(&mixer_lock);
 	return S_OK;
+}
+
+/* A stereo voice of a sound in the world (`positioned`) is panned towards
+it, `pan` from -1 (left) to 1 (right), and muffled and reverberated as a 3D
+voice is (its I3DL2 source, which the game sets as a 3D channel's), its room
+send rolling off from `minimum_distance` with `distance`. The game fades its
+volume with distance itself, by `distance_fade`. Not positioned, it plays as
+the Xbox played every stereo sound, unpanned and dry. (sound_manager.c,
+update_channels: sound_dsound_xbox.c calls this.) */
+void dsound_sdl_stream_set_stereo_position(IDirectSoundStream *object, BOOL positioned, float pan,
+	float distance, float minimum_distance, float distance_fade)
+{
+	struct sdl_stream *stream = stream_from_interface(object);
+
+	pthread_mutex_lock(&mixer_lock);
+	stream->stereo_positioned = positioned && stream->channels == 2;
+	stream->stereo_pan = pan < -1.0f ? -1.0f : (pan > 1.0f ? 1.0f : pan);
+	stream->stereo_distance = distance > 0.0f ? distance : 0.0f;
+	stream->stereo_distance_fade = distance_fade < 0.0f ? 0.0f : (distance_fade > 1.0f ? 1.0f : distance_fade);
+	/* (as the game gives a 3D channel: no maximum) */
+	stream->minimum_distance = minimum_distance > 0.0f ? minimum_distance : 0.0f;
+	stream->maximum_distance = 3.4e38f;
+	pthread_mutex_unlock(&mixer_lock);
 }
 
 static IDirectSoundStreamVtbl stream_vtable =
