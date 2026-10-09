@@ -157,7 +157,10 @@ jobs:
           "succeeded=$($succeeded.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
 
       - name: Report UWP build failure
-        if: always() && steps.gate.outputs.build == 'true' && steps.uwp_build.outputs.succeeded != 'true'
+        if: >-
+          always() &&
+          steps.uwp_build.outcome == 'success' &&
+          steps.uwp_build.outputs.succeeded != 'true'
         shell: pwsh
         run: |
           $log = Join-Path $env:RUNNER_TEMP 'uwp-build.log'

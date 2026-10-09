@@ -30,5 +30,6 @@
   </Application></Applications>
   <Capabilities><Capability Name="internetClientServer"/><Capability Name="privateNetworkClientServer"/>
     <Capability Name="codeGeneration"/><uap:Capability Name="removableStorage"/>
+    <DeviceCapability Name="microphone"/>
   </Capabilities>
 </Package>

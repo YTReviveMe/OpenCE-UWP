@@ -168,6 +168,7 @@ struct audio_binding {
     unsigned char *data;
     int length, capacity;
     int float_to_s16;
+    int capture;
 };
 static __declspec(thread) struct audio_binding *audio_calling;
 static void SDLCALL audio_callback(void *opaque, Uint8 *stream, int length)
@@ -206,6 +207,15 @@ uint32_t GUEST_ABI host_sdl_open_audio_stream(uint32_t device, const void *spec_
     SDL_zero(wanted); wanted.freq = spec->frequency; wanted.format = spec->format;
     wanted.channels = spec->channels; wanted.samples = 1024; wanted.callback = audio_callback; wanted.userdata = binding;
     binding->callback = callback; binding->userdata = userdata;
+    if (!callback) {
+        wanted.callback = NULL;
+        wanted.userdata = NULL;
+        binding->device = SDL_OpenAudioDevice(NULL, 1, &wanted, &obtained, 0);
+        if (!binding->device) { free(binding); return 0; }
+        binding->capture = 1;
+        binding->handle = handle_new(HANDLE_AUDIO, binding);
+        return binding->handle;
+    }
     host_logf(HOST_LOG_INFO, "Xbox audio: requested %d Hz, %d channels, format %04x",
         spec->frequency, spec->channels, (unsigned)spec->format);
     SDL_zero(obtained);
@@ -260,6 +270,30 @@ int GUEST_ABI host_sdl_put_audio_stream_data(uint32_t stream, const void *data, 
 }
 int GUEST_ABI host_sdl_resume_audio_stream_device(uint32_t stream)
 { struct audio_binding *b = (struct audio_binding *)handle_get(stream, HANDLE_AUDIO); if (!b) return 0; SDL_PauseAudioDevice(b->device, 0); return 1; }
+int GUEST_ABI host_sdl_get_audio_stream_data(uint32_t stream, void *data, int length)
+{
+    struct audio_binding *binding = (struct audio_binding *)handle_get(stream, HANDLE_AUDIO);
+    if (!binding || !binding->capture || length < 0) return -1;
+    return (int)SDL_DequeueAudio(binding->device, data, (Uint32)length);
+}
+int GUEST_ABI host_sdl_get_audio_stream_available(uint32_t stream)
+{
+    struct audio_binding *binding = (struct audio_binding *)handle_get(stream, HANDLE_AUDIO);
+    if (!binding || !binding->capture) return -1;
+    return (int)SDL_GetQueuedAudioSize(binding->device);
+}
+void GUEST_ABI host_sdl_destroy_audio_stream(uint32_t stream)
+{
+    struct audio_binding *binding = (struct audio_binding *)handle_get(stream, HANDLE_AUDIO);
+    if (!binding) return;
+    AcquireSRWLockExclusive(&handle_lock);
+    handles[stream].type = HANDLE_FREE;
+    handles[stream].object = NULL;
+    ReleaseSRWLockExclusive(&handle_lock);
+    SDL_CloseAudioDevice(binding->device);
+    free(binding->data);
+    free(binding);
+}
 
 int GUEST_ABI host_sdl_set_clipboard_text(const char *text) { return SDL_SetClipboardText(text) == 0; }
 void GUEST_ABI host_sdl_get_clipboard_text(char *buffer, uint32_t size)
