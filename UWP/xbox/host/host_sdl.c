@@ -161,6 +161,19 @@ int GUEST_ABI host_sdl_gamepad_type(uint32_t gamepad)
 int GUEST_ABI host_sdl_rumble_gamepad(uint32_t gamepad, uint32_t low, uint32_t high, uint32_t ms)
 { SDL_GameController *c = (SDL_GameController *)handle_get(gamepad, HANDLE_GAMEPAD); return c && SDL_GameControllerRumble(c, (Uint16)low, (Uint16)high, ms) == 0; }
 
+void GUEST_ABI host_gesture_insets(int *insets)
+{ memset(insets, 0, 4 * sizeof(*insets)); }
+void GUEST_ABI host_touch_read(int *state)
+{ memset(state, 0, 7 * sizeof(*state)); }
+void GUEST_ABI host_touch_look_read(float *delta)
+{ memset(delta, 0, 4 * sizeof(*delta)); }
+void GUEST_ABI host_touch_rumble(unsigned int low, unsigned int high)
+{ (void)low; (void)high; }
+void GUEST_ABI host_touch_scene(int scene)
+{ (void)scene; }
+void GUEST_ABI host_touch_bindings(const int *controls)
+{ (void)controls; }
+
 struct guest_audio_spec { uint32_t format; int channels; int frequency; };
 struct audio_binding {
     SDL_AudioDeviceID device;

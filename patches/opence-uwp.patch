@@ -735,8 +735,9 @@ diff --git a/port/linux/src/sdl_platform.c b/port/linux/src/sdl_platform.c
 index 58130ee4..c08938c3 100644
 --- a/port/linux/src/sdl_platform.c
 +++ b/port/linux/src/sdl_platform.c
-@@ -17,9 +17,11 @@ and the debug keyboard that the game's console reads.
+@@ -17,10 +17,12 @@ and the debug keyboard that the game's console reads.
  #include "xiso.h"
+ #include "touch_input.h"
  
  #include <SDL3/SDL.h>
 +#include <errno.h>
@@ -2112,3 +2113,15 @@ index f453b3af..44a840a2 100644
              ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
               "Draw the HUD from the high-res redraws; off\ndraws the game's own pictures.", None),
              ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
+diff --git a/port/linux/include/halo_linux_prefix.h b/port/linux/include/halo_linux_prefix.h
+index dc366045..4acae3cf 100644
+--- a/port/linux/include/halo_linux_prefix.h
++++ b/port/linux/include/halo_linux_prefix.h
+@@ -96,3 +96,6 @@ platform layer includes the XDK headers itself, via platform.h. */
+ #include <stddef.h>
+-
++#ifdef HALO_XBOX_UWP
++void platform_log(const char *format, ...);
++#endif
++
+ #endif /* __HALO_LINUX_PREFIX_H */
