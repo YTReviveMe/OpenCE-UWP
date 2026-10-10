@@ -141,6 +141,7 @@ def generate_xbox_build(n: Writer, sln: Any) -> None:
     guest_abi_flags = [
         "--target=x86_64-unknown-linux-gnux32", "-DHALO_ANDROID=1",
         "-DHALO_UWP_PC=1",
+        "-DHALO_GLES=1",
         "-DHALO_GUEST_IMAGE_BASE=0x70000000u",
         "-DHALO_XBOX_UWP=1", "-nostdinc", "-fshort-wchar",
         "-fno-stack-protector", "-fno-unwind-tables",

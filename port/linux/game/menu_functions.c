@@ -1506,6 +1506,17 @@ static boolean color_list_initialize(struct widget_instance *list)
 	return TRUE;
 }
 
+/* (ui_widget.c) whether the pointer moved the menus' focus last */
+boolean ui_widget_port_pointer_focused(void);
+
+/* Whether a list whose focus is on its first or last row moves on: when the
+d-pad put it there. The pointer resting there would make it move every
+frame; the wheel scrolls it instead. */
+static boolean list_scrolls_at_end(void)
+{
+	return !ui_widget_port_pointer_focused();
+}
+
 /* a list of more items than its rows: the row chosen kept off its ends
 while there are more past them, the list moving instead; the item chosen,
 or NONE (its buttons) */
@@ -1513,12 +1524,12 @@ static short list_scroll(struct widget_instance *list, short *first, short count
 {
 	short row = focused_row(list);
 
-	if (row == rows - 1 && *first + rows < count)
+	if (row == rows - 1 && *first + rows < count && list_scrolls_at_end())
 	{
 		(*first)++;
 		focus_row(list, --row);
 	}
-	else if (row == 0 && *first > 0)
+	else if (row == 0 && *first > 0 && list_scrolls_at_end())
 	{
 		(*first)--;
 		focus_row(list, ++row);
@@ -2674,13 +2685,13 @@ static void gametype_list_update(struct widget_instance *list)
 		if (row == list->focused_child && row_index >= 1 && row_index <= GAMETYPE_ROWS)
 			focused = (short)(row_index - 1);
 	}
-	if (focused == count - 1 && multiplayer.gametype_first + count < multiplayer.bank_count)
+	if (focused == count - 1 && multiplayer.gametype_first + count < multiplayer.bank_count && list_scrolls_at_end())
 	{
 		multiplayer.gametype_first++;
 		focus_row(list, (short)focused);
 		focused--;
 	}
-	else if (focused == 0 && multiplayer.gametype_first > 0)
+	else if (focused == 0 && multiplayer.gametype_first > 0 && list_scrolls_at_end())
 	{
 		multiplayer.gametype_first--;
 		focus_row(list, 2);
@@ -3425,12 +3436,12 @@ static void lobby_browser_update(struct widget_instance *list)
 
 	lobby_browser.count = lobby_browser_valid_games(lobby_browser.games,
 		(short)p2p_lobby_games(lobby_browser.games, LOBBY_BROWSER_GAMES));
-	if (focused == BROWSER_ROWS - 1 && lobby_browser.first + BROWSER_ROWS < lobby_browser.count)
+	if (focused == BROWSER_ROWS - 1 && lobby_browser.first + BROWSER_ROWS < lobby_browser.count && list_scrolls_at_end())
 	{
 		lobby_browser.first++;
 		lobby_browser_focus_row(list, --focused);
 	}
-	else if (focused == 0 && lobby_browser.first > 0)
+	else if (focused == 0 && lobby_browser.first > 0 && list_scrolls_at_end())
 	{
 		lobby_browser.first--;
 		lobby_browser_focus_row(list, ++focused);
@@ -3938,6 +3949,27 @@ static boolean profile_save_changes(struct widget_instance *widget, boolean *wid
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	ui_widget_port_go_back(widget);
 	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* "port profile settings save" (Gamepads' OK in a single-player campaign:
+menu_tags.c's pause_settings_patch): the profile saved at once, not on
+Settings' OK, so that the campaign's next save of the player's profile
+keeps it; saving makes it the player's own (player_ui_save_profile), and it
+is edited again from what was saved, for Settings to go on with */
+static boolean profile_settings_save(struct widget_instance *widget)
+{
+	long index = player_ui_get_edit_profile_index();
+
+	settings_each(screen_of(widget), setting_changed_save);
+	if (!player_ui_get_edit_player_profile() || !player_ui_edit_profile_is_dirty())
+		return TRUE;
+	if (!player_ui_save_profile())
+	{
+		platform_log("menus: could not save the profile's changes");
+		return campaign_fail();
+	}
+	player_ui_begin_editing_profile(index);
 	return TRUE;
 }
 
@@ -5425,6 +5457,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "player profile save changes"))
 		{
 			return profile_save_changes(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port profile settings save"))
+		{
+			return profile_settings_save(widget);
 		}
 		else if (!strcmp(name, "direct ip connect go"))
 		{

@@ -152,6 +152,18 @@ uint32_t GUEST_ABI host_sdl_open_gamepad(uint32_t id)
 { return handle_new(HANDLE_GAMEPAD, controller_from_instance((SDL_JoystickID)id)); }
 uint32_t GUEST_ABI host_sdl_gamepad_from_id(uint32_t id)
 { return handle_new(HANDLE_GAMEPAD, controller_from_instance((SDL_JoystickID)id)); }
+void GUEST_ABI host_sdl_close_gamepad(uint32_t gamepad)
+{
+    SDL_GameController *controller;
+    AcquireSRWLockExclusive(&handle_lock);
+    controller = (SDL_GameController *)handle_get(gamepad, HANDLE_GAMEPAD);
+    if (controller) {
+        handles[gamepad].type = HANDLE_FREE;
+        handles[gamepad].object = NULL;
+        SDL_GameControllerClose(controller);
+    }
+    ReleaseSRWLockExclusive(&handle_lock);
+}
 int GUEST_ABI host_sdl_gamepad_axis(uint32_t gamepad, int axis)
 { SDL_GameController *c = (SDL_GameController *)handle_get(gamepad, HANDLE_GAMEPAD); return c ? SDL_GameControllerGetAxis(c, (SDL_GameControllerAxis)axis) : 0; }
 int GUEST_ABI host_sdl_gamepad_button(uint32_t gamepad, int button)

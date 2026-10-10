@@ -1366,7 +1366,7 @@ static void audio_start(void)
 		spec.format = SDL_AUDIO_F32;
 		spec.channels = OUTPUT_CHANNELS;
 		spec.freq = OUTPUT_RATE;
-#ifdef HALO_ANDROID
+#ifdef HALO_ARM64_GUEST
 		/* frames per callback: on Android each callback is handed to a thread
 		that can run the guest (host_sdl.c): 512 left it too little time and
 		the menus' music broke up, which 1024 does not (about 21 ms at 48 kHz,
@@ -1449,6 +1449,10 @@ static void stream_complete_head(struct sdl_stream *stream, DWORD status, DWORD 
 	struct voice_packet *entry = &stream->packets[stream->packet_head];
 	XMEDIAPACKET packet = entry->packet;
 
+	/* (one not played to its end, flushed: the cursor was its place, and the
+	mixer may take the next while the lock is let go below) */
+	if (!entry->finished)
+		stream->cursor = 0;
 	packet_release(entry);
 	entry->finished = FALSE;
 	stream->packet_head = (stream->packet_head + 1) % MAXIMUM_STREAM_PACKETS;
