@@ -1,7 +1,7 @@
 param(
     [string]$SourceDirectory,
     [string]$Repository = 'https://github.com/OpenCommunityEdition/OpenCE.git',
-    [string]$Revision = '5e8ab023c16d1d61b1bd052282dbc6df8d134732',
+    [string]$Revision = '9da2a45ffa364b720ae9faab6a1dee876926fe42',
     [string]$ImGuiSource
 )
 

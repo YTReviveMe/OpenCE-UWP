@@ -145,9 +145,18 @@ index 3b9c2963..93953faa 100644
 +#ifndef HALO_GUEST_IMAGE_BASE
  #define HALO_GUEST_IMAGE_BASE 0x88000000u
 +#endif
+ /* the room the host reserves for the image there (port/android/host/host_memory.c) */
+ #define HALO_GUEST_IMAGE_RESERVE 0x04000000u
  
- /* the Xbox contiguous memory window (port/linux/src/platform.h) */
- #define HALO_GUEST_WINDOW_BASE 0x80000000u
+diff --git a/port/linux/src/platform.h b/port/linux/src/platform.h
+--- a/port/linux/src/platform.h
++++ b/port/linux/src/platform.h
+@@ -116,4 +116,4 @@
+ #define PLATFORM_CONTIGUOUS_BASE 0x80000000UL
+-#ifdef HALO_ARM64_GUEST
++#if defined(HALO_ARM64_GUEST) || defined(HALO_XBOX_UWP)
+ /* 128 MB, a development kit's: Android's guest image is linked just above
+ the window (port/android/include/halo_android_abi.h) */
 diff --git a/port/linux/game/menu_functions.c b/port/linux/game/menu_functions.c
 index 7f9cb55e..a83c52ae 100644
 --- a/port/linux/game/menu_functions.c
