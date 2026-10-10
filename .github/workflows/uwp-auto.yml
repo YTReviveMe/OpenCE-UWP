@@ -67,7 +67,7 @@ jobs:
         env:
           EXISTS: ${{ steps.release.outputs.exists }}
         run: |
-          $build = $env:EXISTS -ne 'true'
+          $build = $env:EXISTS -ne 'true' -or '${{ github.event_name }}' -eq 'push'
           "build=$($build.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
           if (-not $build) { Write-Output 'No unpublished OpenCE update is eligible.' }
 
@@ -242,6 +242,17 @@ jobs:
           $certificate = "$output\OpenCE-UWP.cer"
           $archive = 'dist\OpenCE-UWP-${{ steps.release.outputs.version }}.zip'
           $signing = if ('${{ steps.signing.outputs.persistent }}' -eq 'true') { 'persistent' } else { 'temporary' }
+          if ('${{ steps.release.outputs.exists }}' -eq 'true') {
+            & gh release upload '${{ steps.release.outputs.release_tag }}' `
+              $package $certificate $archive "$archive.sha256" `
+              --repo $env:GITHUB_REPOSITORY --clobber
+            if ($LASTEXITCODE) { throw 'Release upload failed.' }
+            & gh release edit '${{ steps.release.outputs.release_tag }}' `
+              --repo $env:GITHUB_REPOSITORY `
+              --notes "Built from OpenCE ${{ steps.release.outputs.tag }} (${{ steps.release.outputs.commit }}) with a $signing signing certificate. UWP source: ${{ github.sha }}."
+            if ($LASTEXITCODE) { throw 'Release update failed.' }
+            exit 0
+          }
           & gh release create '${{ steps.release.outputs.release_tag }}' `
             $package $certificate $archive "$archive.sha256" `
             --repo $env:GITHUB_REPOSITORY `
