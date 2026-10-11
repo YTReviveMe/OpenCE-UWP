@@ -20,6 +20,7 @@ try {
  New-Item -ItemType Directory -Path (Join-Path $stage 'OpenCE')|Out-Null
  Copy-Item -Path (Join-Path $sourceRoot 'port\assets\*') -Destination (Join-Path $stage 'OpenCE') -Recurse
  Copy-Item -LiteralPath (Join-Path $sourceRoot 'port\third_party\extract-xiso\LICENSE.TXT') -Destination (Join-Path $stage 'extract-xiso-LICENSE.txt')
+ Copy-Item -LiteralPath (Join-Path $sourceRoot 'port\third_party\mbedtls\LICENSE') -Destination (Join-Path $stage 'mbedtls-LICENSE.txt')
  Copy-Item -LiteralPath (Join-Path $sourceRoot 'port\xbox\third_party\imgui\LICENSE.txt') -Destination (Join-Path $stage 'imgui-LICENSE.txt')
  $assetRoot=Join-Path $sourceRoot 'port\assets'
  Get-ChildItem -LiteralPath $assetRoot -Recurse -File |

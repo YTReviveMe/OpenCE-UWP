@@ -31,6 +31,11 @@ set(HOST_SOURCES
   "${REPO_ROOT}/port/windows/src/win32_net.c"
   "${GENERATED}/host_gl.c" "${GENERATED}/host_posix.c")
 
+set(MBEDTLS "${REPO_ROOT}/port/third_party/mbedtls")
+file(GLOB MBEDTLS_SOURCES CONFIGURE_DEPENDS "${MBEDTLS}/library/*.c")
+list(REMOVE_ITEM MBEDTLS_SOURCES "${MBEDTLS}/library/net_sockets.c")
+list(APPEND HOST_SOURCES "${REPO_ROOT}/port/linux/src/posix_dtls.c" ${MBEDTLS_SOURCES})
+
 set(IMGUI "${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui")
 list(APPEND HOST_SOURCES
   "${IMGUI}/imgui.cpp" "${IMGUI}/imgui_draw.cpp" "${IMGUI}/imgui_tables.cpp" "${IMGUI}/imgui_widgets.cpp"
@@ -53,6 +58,7 @@ target_include_directories(OpenCEUWP PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/host"
   "${REPO_ROOT}/port/android/include"
   "${REPO_ROOT}/port/linux/src"
+  "${MBEDTLS}/include" "${MBEDTLS}/library"
   "${IMGUI}" "${IMGUI}/backends"
   "${UWP_DEPS}/x64/include" "${UWP_DEPS}/x64/include/SDL2")
 target_link_directories(OpenCEUWP BEFORE PRIVATE "$ENV{VCToolsInstallDir}/lib/x64/store")
