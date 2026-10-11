@@ -1,5 +1,5 @@
 diff --git a/configure.py b/configure.py
-index 4a5d91563..97ef12e0a 100644
+index 4a5d9156..97ef12e0 100644
 --- a/configure.py
 +++ b/configure.py
 @@ -15,6 +15,7 @@ from tools.android_build import android_configure_inputs, generate_android_build
@@ -27,7 +27,7 @@ index 4a5d91563..97ef12e0a 100644
  )
  n.newline()
 diff --git a/port/android/guest/guest.ld b/port/android/guest/guest.ld
-index d7dde6d82..1b7891c72 100644
+index d7dde6d8..1b7891c7 100644
 --- a/port/android/guest/guest.ld
 +++ b/port/android/guest/guest.ld
 @@ -17,9 +17,11 @@ SECTIONS
@@ -43,7 +43,7 @@ index d7dde6d82..1b7891c72 100644
  	}
  	.bss : { *(.bss .bss.*) *(COMMON) }
 diff --git a/port/android/guest/libc/src_include/features.h b/port/android/guest/libc/src_include/features.h
-index 93d2e14ca..08a16aa9f 100644
+index 93d2e14c..08a16aa9 100644
 --- a/port/android/guest/libc/src_include/features.h
 +++ b/port/android/guest/libc/src_include/features.h
 @@ -11,9 +11,14 @@ attributes, and its assembly is converted to ELF afterwards
@@ -62,7 +62,7 @@ index 93d2e14ca..08a16aa9f 100644
  
  #endif
 diff --git a/port/android/guest/runtime/guest_host.h b/port/android/guest/runtime/guest_host.h
-index 60c5d2599..3d73a5f33 100644
+index 60c5d259..3d73a5f3 100644
 --- a/port/android/guest/runtime/guest_host.h
 +++ b/port/android/guest/runtime/guest_host.h
 @@ -27,6 +27,9 @@ void host_exit(int code) __attribute__((noreturn));
@@ -76,7 +76,7 @@ index 60c5d2599..3d73a5f33 100644
  
  The guest's thread pointer (its struct pthread) is kept by the host for
 diff --git a/port/android/guest/runtime/guest_start.c b/port/android/guest/runtime/guest_start.c
-index 8242ec505..cb98b12cd 100644
+index 8242ec50..cb98b12c 100644
 --- a/port/android/guest/runtime/guest_start.c
 +++ b/port/android/guest/runtime/guest_start.c
 @@ -30,7 +30,11 @@ void __guest_thread_initialize_main(void);
@@ -123,7 +123,7 @@ index 8242ec505..cb98b12cd 100644
  	result = main((int)boot->argc, (char **)boot->argv);
  	exit(result);
 diff --git a/port/android/guest/runtime/guest_thread.c b/port/android/guest/runtime/guest_thread.c
-index 13fe28a09..4b913e133 100644
+index 13fe28a0..4b913e13 100644
 --- a/port/android/guest/runtime/guest_thread.c
 +++ b/port/android/guest/runtime/guest_thread.c
 @@ -43,6 +43,7 @@ enum
@@ -135,7 +135,7 @@ index 13fe28a09..4b913e133 100644
  
  static struct guest_thread main_thread;
 diff --git a/port/android/include/halo_android_abi.h b/port/android/include/halo_android_abi.h
-index 3bd862153..99b3d05dc 100644
+index 3bd86215..99b3d05d 100644
 --- a/port/android/include/halo_android_abi.h
 +++ b/port/android/include/halo_android_abi.h
 @@ -28,7 +28,9 @@ This header is included by both halves.
@@ -149,7 +149,7 @@ index 3bd862153..99b3d05dc 100644
  #define HALO_GUEST_IMAGE_RESERVE 0x04000000u
  
 diff --git a/port/assets/menus/ce/main_menu.settings_select.player_setup.player_profile_edit.video_settings.xml b/port/assets/menus/ce/main_menu.settings_select.player_setup.player_profile_edit.video_settings.xml
-index e30060bf1..b08334794 100644
+index e30060bf..b0833479 100644
 --- a/port/assets/menus/ce/main_menu.settings_select.player_setup.player_profile_edit.video_settings.xml
 +++ b/port/assets/menus/ce/main_menu.settings_select.player_setup.player_profile_edit.video_settings.xml
 @@ -15,25 +15,22 @@
@@ -232,7 +232,7 @@ index e30060bf1..b08334794 100644
  		<string text="The field of view and the first-person\nweapon. Their defaults keep the stock view."/>
  	</strings>
 diff --git a/port/linux/game/menu_functions.c b/port/linux/game/menu_functions.c
-index 76622c831..035bfb531 100644
+index 8bf724b8..8569d900 100644
 --- a/port/linux/game/menu_functions.c
 +++ b/port/linux/game/menu_functions.c
 @@ -808,6 +808,8 @@ static void campaign_levels_read(struct player_profile const *profile)
@@ -270,7 +270,7 @@ index 76622c831..035bfb531 100644
  	if (!campaign_profile(controller, &profile))
  		return campaign_fail();
  	/* (a campaign level, or a Custom Edition campaign map) */
-@@ -3991,8 +4003,25 @@ static boolean profile_save_changes(struct widget_instance *widget, boolean *wid
+@@ -3995,8 +4007,25 @@ static boolean profile_save_changes(struct widget_instance *widget, boolean *wid
  {
  	if (player_ui_edit_profile_is_dirty())
  	{
@@ -297,7 +297,7 @@ index 76622c831..035bfb531 100644
  		return campaign_fail();
  	}
 diff --git a/port/linux/game/render_interpolation.c b/port/linux/game/render_interpolation.c
-index 05aae5df1..116bae49b 100644
+index 05aae5df..116bae49 100644
 --- a/port/linux/game/render_interpolation.c
 +++ b/port/linux/game/render_interpolation.c
 @@ -684,7 +684,7 @@ static struct observer_result const *render_interpolation_direct_camera(
@@ -310,7 +310,7 @@ index 05aae5df1..116bae49b 100644
  	return observer;
  #else
 diff --git a/port/linux/include/halo_linux_prefix.h b/port/linux/include/halo_linux_prefix.h
-index 16bcbfd21..5f0f1aaf6 100644
+index 16bcbfd2..5f0f1aaf 100644
 --- a/port/linux/include/halo_linux_prefix.h
 +++ b/port/linux/include/halo_linux_prefix.h
 @@ -10,7 +10,7 @@ byte-for-byte identical to what the matching MSVC build compiles.
@@ -332,7 +332,7 @@ index 16bcbfd21..5f0f1aaf6 100644
  
  #endif /* __HALO_LINUX_PREFIX_H */
 diff --git a/port/linux/include/halo_port_capacity.h b/port/linux/include/halo_port_capacity.h
-index a714302c9..e0a5869f4 100644
+index a714302c..e0a5869f 100644
 --- a/port/linux/include/halo_port_capacity.h
 +++ b/port/linux/include/halo_port_capacity.h
 @@ -46,7 +46,7 @@ measurement). The desktop builds' cache is 256 MB, half their 512 MB memory
@@ -354,7 +354,7 @@ index a714302c9..e0a5869f4 100644
  #else
  #define HALO_PORT_SOUND_CACHE_SIZE 0x1000000 /* (0x400000) */
 diff --git a/port/linux/src/d3d8_gl.c b/port/linux/src/d3d8_gl.c
-index 3dc40e06a..ef43945b1 100644
+index 054aec19..77bcde03 100644
 --- a/port/linux/src/d3d8_gl.c
 +++ b/port/linux/src/d3d8_gl.c
 @@ -139,6 +139,7 @@ context exists */
@@ -374,7 +374,7 @@ index 3dc40e06a..ef43945b1 100644
  	/* display.screen_width, or 0 for the display's shape, which the app
  	passes (port/android/host/host_main.c) */
  	const char *display = getenv("HALO_DISPLAY_WIDTH");
-@@ -1304,6 +1305,7 @@ static GLuint framebuffer_find(GLuint color, GLuint depth, BOOL renderbuffers)
+@@ -1375,6 +1376,7 @@ static GLuint framebuffer_find(GLuint color, GLuint depth, BOOL renderbuffers)
  {
  	struct framebuffer_entry *entry, **link;
  	GLenum draw_buffer = color ? GL_COLOR_ATTACHMENT0 : GL_NONE;
@@ -382,7 +382,7 @@ index 3dc40e06a..ef43945b1 100644
  
  	/* (found, it moves to the front: each draw asks again for the one
  	the draw before it did) */
-@@ -1338,8 +1340,15 @@ static GLuint framebuffer_find(GLuint color, GLuint depth, BOOL renderbuffers)
+@@ -1409,8 +1411,15 @@ static GLuint framebuffer_find(GLuint color, GLuint depth, BOOL renderbuffers)
  			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
  	}
  	glDrawBuffers(1, &draw_buffer);
@@ -400,7 +400,7 @@ index 3dc40e06a..ef43945b1 100644
  	xgpu_gl_state_invalidate();
  	entry->next = framebuffers;
  	framebuffers = entry;
-@@ -1440,6 +1449,43 @@ static void render_target_multisample(struct xgpu_render_target *target, int sam
+@@ -1511,6 +1520,43 @@ static void render_target_multisample(struct xgpu_render_target *target, int sam
  	xgpu_gl_state_invalidate();
  }
  
@@ -444,7 +444,7 @@ index 3dc40e06a..ef43945b1 100644
  /* counts draws and clears into render targets (xgpu_render_target.written) */
  static unsigned long render_target_write_serial;
  
-@@ -1501,13 +1547,53 @@ static BOOL bind_targets(BOOL *has_depth)
+@@ -1572,13 +1618,53 @@ static BOOL bind_targets(BOOL *has_depth)
  		render_target_multisample(&depth->target, samples);
  	if (samples)
  	{
@@ -505,7 +505,7 @@ index 3dc40e06a..ef43945b1 100644
  	}
  	else
  	{
-@@ -1686,6 +1772,15 @@ static void anti_aliasing_prepare(void)
+@@ -1757,6 +1843,15 @@ static void anti_aliasing_prepare(void)
  		platform_log("anti-aliasing: the GPU has at most %d samples a pixel", (int)anti_aliasing_maximum_samples);
  		anti_aliasing_samples = anti_aliasing_maximum_samples < 2 ? 0 : anti_aliasing_maximum_samples;
  	}
@@ -521,7 +521,7 @@ index 3dc40e06a..ef43945b1 100644
  	if ((mode == _anti_aliasing_fxaa || mode == _anti_aliasing_smaa) && !xgpu_post_prepare(mode == _anti_aliasing_smaa))
  		platform_log("anti-aliasing: its programs do not build, so the 3D view is not antialiased");
  	xgpu_gl_state_invalidate();
-@@ -1978,7 +2073,7 @@ long halo_screen_commit(void)
+@@ -2049,7 +2144,7 @@ long halo_screen_commit(void)
  		screen_width = width;
  		screen_scale[0] = scale[0];
  		screen_scale[1] = scale[1];
@@ -531,7 +531,7 @@ index 3dc40e06a..ef43945b1 100644
  		{
  			device.presentation.BackBufferWidth = (UINT)width;
 diff --git a/port/linux/src/menu_files.c b/port/linux/src/menu_files.c
-index e46b2e29c..3e57218b8 100644
+index fd79da2a..b04f34e5 100644
 --- a/port/linux/src/menu_files.c
 +++ b/port/linux/src/menu_files.c
 @@ -99,7 +99,7 @@ static long file_add(const char *path, const unsigned char *data, unsigned long
@@ -556,7 +556,7 @@ index e46b2e29c..3e57218b8 100644
  		data = file_read(path, &size);
  		if (data)
 diff --git a/port/linux/src/p2p.c b/port/linux/src/p2p.c
-index 170028e3a..31b0f7d35 100644
+index bbf2a9b2..deb548a4 100644
 --- a/port/linux/src/p2p.c
 +++ b/port/linux/src/p2p.c
 @@ -77,6 +77,10 @@ enum
@@ -570,7 +570,7 @@ index 170028e3a..31b0f7d35 100644
  	/* the packets received out of order that are still taken */
  	REPLAY_WINDOW = 64,
  
-@@ -282,6 +286,23 @@ struct stun_server
+@@ -289,6 +293,23 @@ struct stun_server
  
  pthread_mutex_t p2p_lock = PTHREAD_MUTEX_INITIALIZER;
  
@@ -594,7 +594,7 @@ index 170028e3a..31b0f7d35 100644
  #ifdef HALO_PROFILE
  /* the p2p thread's own track of the profiling build's recording
  (profile_trace.c): profile.c's sections are the game thread's alone */
-@@ -1713,47 +1734,48 @@ int p2p_broadcast_targets(unsigned short port, unsigned long *addresses, unsigne
+@@ -1741,47 +1762,48 @@ int p2p_broadcast_targets(unsigned short port, unsigned long *addresses, unsigne
  static void datagram_send(struct peer *peer, unsigned short source_port, unsigned short port, const void *data,
  	int size);
  
@@ -673,7 +673,7 @@ index 170028e3a..31b0f7d35 100644
  }
  
  int p2p_peer_address(const unsigned char *peer_identifier, unsigned long *address)
-@@ -1891,6 +1913,48 @@ static void datagram_send(struct peer *peer, unsigned short source_port, unsigne
+@@ -1920,6 +1942,48 @@ static void datagram_send(struct peer *peer, unsigned short source_port, unsigne
  	peer_send(peer, inner, size + 5);
  }
  
@@ -722,7 +722,7 @@ index 170028e3a..31b0f7d35 100644
  /* a datagram from the game to a peer, through its stand-in (from a socket
  connected to it, or not bound yet: p2p_send_datagram sends the rest) */
  static void proxy_readable(struct proxy *proxy)
-@@ -1898,7 +1962,7 @@ static void proxy_readable(struct proxy *proxy)
+@@ -1927,7 +1991,7 @@ static void proxy_readable(struct proxy *proxy)
  	unsigned char data[MAXIMUM_INNER_SIZE - 5];
  	int count;
  
@@ -731,7 +731,7 @@ index 170028e3a..31b0f7d35 100644
  	{
  		struct sockaddr_in from;
  		int from_length = sizeof(from);
-@@ -2320,7 +2384,7 @@ static void tunnel_readable(void)
+@@ -2349,7 +2413,7 @@ static void tunnel_readable(void)
  	unsigned char packet[2048];
  	int count;
  
@@ -740,7 +740,7 @@ index 170028e3a..31b0f7d35 100644
  	{
  		struct sockaddr_in from;
  		int from_length = sizeof(from);
-@@ -2940,7 +3004,7 @@ static void *p2p_thread(void *unused)
+@@ -3124,7 +3188,7 @@ static void *p2p_thread(void *unused)
  		int asked_read_count, asked_write_count;
  		/* KCP's clock needs a pass every LOOP_INTERVAL while it carries
  		streams; otherwise the thread can sleep longer */
@@ -749,7 +749,7 @@ index 170028e3a..31b0f7d35 100644
  		int index, asked;
  
  		/* what to wait for */
-@@ -3011,6 +3075,7 @@ static void *p2p_thread(void *unused)
+@@ -3195,6 +3259,7 @@ static void *p2p_thread(void *unused)
  #ifdef HALO_PROFILE
  		profile_trace_begin(p2p_profile_names.pass);
  #endif
@@ -758,7 +758,7 @@ index 170028e3a..31b0f7d35 100644
  		/* what is ready (the lists now hold only ready sockets, in the order
  		asked, so each one's owner is found going along both); a socket
 diff --git a/port/linux/src/p2p_lobby.c b/port/linux/src/p2p_lobby.c
-index 105d7a089..0217fc8f8 100644
+index 105d7a08..0217fc8f 100644
 --- a/port/linux/src/p2p_lobby.c
 +++ b/port/linux/src/p2p_lobby.c
 @@ -608,6 +608,8 @@ static void listing_take(const struct queued *queued, const struct listing *list
@@ -771,10 +771,10 @@ index 105d7a089..0217fc8f8 100644
  	game->sequence = listing->sequence;
  	game->heard_time = p2p_now();
 diff --git a/port/linux/src/p2p_signal.c b/port/linux/src/p2p_signal.c
-index efd1259e7..4f4fd6775 100644
+index 426f1eee..a15ff628 100644
 --- a/port/linux/src/p2p_signal.c
 +++ b/port/linux/src/p2p_signal.c
-@@ -416,6 +416,9 @@ static void make_topic(const unsigned char *token, const char *label, const unsi
+@@ -435,6 +435,9 @@ static void make_topic(const unsigned char *token, const char *label, const unsi
  
  static void broker_close(struct broker *broker, int failed)
  {
@@ -784,17 +784,17 @@ index efd1259e7..4f4fd6775 100644
  	if (broker->socket >= 0)
  		posix_socket_close(broker->socket);
  	broker->socket = -1;
-@@ -1491,6 +1494,9 @@ static int broker_acknowledged(struct broker *broker, const unsigned char *body,
- 	broker->publish_tokens = PUBLISH_BURST;
+@@ -1552,6 +1555,9 @@ static int broker_acknowledged(struct broker *broker, const unsigned char *body,
  	broker->publish_time = p2p_now();
  	broker_sync_topics(broker);
+ 	/* a joiner's first requests need not wait for the next repeat */
 +	platform_log("Internet play: connected to signalling broker %s using MQTT %s (public lobby %s)",
 +		broker->host, broker->protocol == 5 ? "5" : "3.1.1",
 +		broker_carries_lobby(broker) ? "available" : "unavailable");
- 	/* a joiner's first request need not wait for the next repeat */
- 	if (signalling.joining)
- 		send_join();
-@@ -1742,6 +1748,9 @@ void p2p_signal_start(void)
+ 	{
+ 		int index;
+ 
+@@ -1809,6 +1815,9 @@ void p2p_signal_start(void)
  		platform_log("Internet play: no signalling brokers (network.brokers_file), so invites cannot work");
  	else if (text[strspn(text, ", ")])
  		platform_log("Internet play: only the first %d signalling brokers are used", MAXIMUM_BROKERS);
@@ -805,7 +805,7 @@ index efd1259e7..4f4fd6775 100644
  
  void p2p_signal_select_sets(int *read, int *read_count, int *write, int *write_count, int maximum_count)
 diff --git a/port/linux/src/platform.h b/port/linux/src/platform.h
-index a62eaf67f..f623fe479 100644
+index a62eaf67..f623fe47 100644
 --- a/port/linux/src/platform.h
 +++ b/port/linux/src/platform.h
 @@ -114,7 +114,7 @@ that window at start-up and hands out page-granular blocks from it, so the
@@ -818,7 +818,7 @@ index a62eaf67f..f623fe479 100644
  the window (port/android/include/halo_android_abi.h), and the web build's
  WebAssembly memory ends with it (tools/web_build.py) */
 diff --git a/port/linux/src/port_config.c b/port/linux/src/port_config.c
-index 0a9bf2453..02b01cc7f 100644
+index dc255533..6ab6db81 100644
 --- a/port/linux/src/port_config.c
 +++ b/port/linux/src/port_config.c
 @@ -76,6 +76,12 @@ Ctrl+D, which moving and crouching would press, from the browser) */
@@ -867,7 +867,7 @@ index 0a9bf2453..02b01cc7f 100644
  		"In first person, point the view where the player aims now instead of\n"
  		"where the last tick left it: the view turns the frame the mouse moves,\n"
  		"not up to two ticks (66 ms) later." },
-@@ -620,7 +626,10 @@ static void config_path(char *path, size_t size)
+@@ -642,7 +648,10 @@ static void config_path(char *path, size_t size)
  #if defined(HALO_ANDROID) || defined(HALO_WEB)
  	/* the data folder, which the app names (port/android/host/host_main.c;
  	on the web, port/web/src/web_main.c) */
@@ -879,7 +879,7 @@ index 0a9bf2453..02b01cc7f 100644
  
  	snprintf(path, size, "%s/config.toml", root && *root ? root : ".");
  #else
-@@ -634,7 +643,7 @@ static void config_path(char *path, size_t size)
+@@ -656,7 +665,7 @@ static void config_path(char *path, size_t size)
  /* the whole file, NUL terminated, or NULL; free() it */
  static char *config_read_file(const char *path, size_t *size)
  {
@@ -888,7 +888,7 @@ index 0a9bf2453..02b01cc7f 100644
  	FILE *file = fopen(path, "rb");
  	char *text = NULL;
  	long length;
-@@ -677,7 +686,7 @@ static char *config_read_file(const char *path, size_t *size)
+@@ -699,7 +708,7 @@ static char *config_read_file(const char *path, size_t *size)
  
  static int config_write_file(const char *path, const char *text)
  {
@@ -898,7 +898,7 @@ index 0a9bf2453..02b01cc7f 100644
  	int written;
  
 diff --git a/port/linux/src/sdl_platform.c b/port/linux/src/sdl_platform.c
-index 7384b6040..c599e0c26 100644
+index 7384b604..c599e0c2 100644
 --- a/port/linux/src/sdl_platform.c
 +++ b/port/linux/src/sdl_platform.c
 @@ -18,9 +18,11 @@ and the debug keyboard that the game's console reads.
@@ -1073,7 +1073,7 @@ index 7384b6040..c599e0c26 100644
  			has no SDL_GetGamepadName) */
  			SDL_OpenGamepad(event.gdevice.which);
 diff --git a/port/linux/src/sdl_platform.h b/port/linux/src/sdl_platform.h
-index 3e94b9d37..81e2dba66 100644
+index 3e94b9d3..81e2dba6 100644
 --- a/port/linux/src/sdl_platform.h
 +++ b/port/linux/src/sdl_platform.h
 @@ -60,7 +60,7 @@ struct platform_keystroke
@@ -1086,7 +1086,7 @@ index 3e94b9d37..81e2dba66 100644
  #endif
  /* Video Setup's resolutions (port/linux/game/menu_tags.c), in pixels: the
 diff --git a/port/linux/src/xbox_memory.c b/port/linux/src/xbox_memory.c
-index c9a595cac..c8a686113 100644
+index c9a595ca..c8a68611 100644
 --- a/port/linux/src/xbox_memory.c
 +++ b/port/linux/src/xbox_memory.c
 @@ -49,6 +49,7 @@ static unsigned long block_page_count[CONTIGUOUS_PAGE_COUNT];
@@ -1145,7 +1145,7 @@ index c9a595cac..c8a686113 100644
  	else
  	{
 diff --git a/port/linux/src/xnet.c b/port/linux/src/xnet.c
-index e4ef954b5..3ee06e199 100644
+index e4ef954b..3ee06e19 100644
 --- a/port/linux/src/xnet.c
 +++ b/port/linux/src/xnet.c
 @@ -1174,10 +1174,16 @@ non-loopback IPv4 address */
@@ -1166,7 +1166,7 @@ index e4ef954b5..3ee06e199 100644
  
  DWORD WSAAPI XNetGetTitleXnAddr(XNADDR *address)
 diff --git a/port/windows/src/win32_files.c b/port/windows/src/win32_files.c
-index be9b04158..89caa4cb7 100644
+index be9b0415..89caa4cb 100644
 --- a/port/windows/src/win32_files.c
 +++ b/port/windows/src/win32_files.c
 @@ -137,8 +137,19 @@ int posix_set_file_times(const char *path,
@@ -1191,7 +1191,7 @@ index be9b04158..89caa4cb7 100644
  	BOOL result;
  
 diff --git a/source/bink/bink_playback.c b/source/bink/bink_playback.c
-index ba6310bb4..11d71876f 100644
+index ba6310bb..11d71876 100644
 --- a/source/bink/bink_playback.c
 +++ b/source/bink/bink_playback.c
 @@ -511,6 +511,11 @@ void bink_playback_start(
@@ -1207,7 +1207,7 @@ index ba6310bb4..11d71876f 100644
  
  	if (!bink_globals.initialized)
 diff --git a/source/cache/cache_files_decompress_windows.c b/source/cache/cache_files_decompress_windows.c
-index 00a408a61..ce3e1997e 100644
+index 00a408a6..ce3e1997 100644
 --- a/source/cache/cache_files_decompress_windows.c
 +++ b/source/cache/cache_files_decompress_windows.c
 @@ -505,6 +505,10 @@ static void cache_copy_issue_initial_reads(
@@ -1356,7 +1356,7 @@ index 00a408a61..ce3e1997e 100644
  		CloseHandle(self->source_file);
  		self->source_file = NULL;
 diff --git a/source/cache/cache_files_windows.c b/source/cache/cache_files_windows.c
-index 995e834ff..4a1bfed65 100644
+index 995e834f..4a1bfed6 100644
 --- a/source/cache/cache_files_windows.c
 +++ b/source/cache/cache_files_windows.c
 @@ -194,6 +194,14 @@ symbols in this file:
@@ -1530,7 +1530,7 @@ index 995e834ff..4a1bfed65 100644
  	return result;
  }
 diff --git a/source/cseries/errors.c b/source/cseries/errors.c
-index 82df18a2e..2c1f34516 100644
+index 82df18a2..2c1f3451 100644
 --- a/source/cseries/errors.c
 +++ b/source/cseries/errors.c
 @@ -223,7 +223,9 @@ void errors_initialize(
@@ -1580,7 +1580,7 @@ index 82df18a2e..2c1f34516 100644
  				terminal_printf(global_real_argb_white, "%s", string);
  			}
 diff --git a/source/cutscene/cinematics.c b/source/cutscene/cinematics.c
-index 26d9f895a..26b8c6a40 100644
+index 26d9f895..26b8c6a4 100644
 --- a/source/cutscene/cinematics.c
 +++ b/source/cutscene/cinematics.c
 @@ -236,7 +236,7 @@ void cinematic_suppress_bsp_object_creation(
@@ -1593,7 +1593,7 @@ index 26d9f895a..26b8c6a40 100644
  
  void cinematic_stop(
 diff --git a/source/effects/decals.c b/source/effects/decals.c
-index 186416714..973cd6512 100644
+index 18641671..973cd651 100644
 --- a/source/effects/decals.c
 +++ b/source/effects/decals.c
 @@ -851,7 +851,7 @@ pixel32 real_a_rgb_color_to_pixel32(
@@ -1606,7 +1606,7 @@ index 186416714..973cd6512 100644
  		struct data_iterator iterator;
  
 diff --git a/source/game/game.c b/source/game/game.c
-index 214076017..877db676b 100644
+index 21407601..877db676 100644
 --- a/source/game/game.c
 +++ b/source/game/game.c
 @@ -277,6 +277,10 @@ PROFILE_SECTION(game_tick_player_effect_section, "game_tick.player_effect")
@@ -1732,7 +1732,7 @@ index 214076017..877db676b 100644
  	}
  
 diff --git a/source/interface/attract_mode.c b/source/interface/attract_mode.c
-index de29eb33e..d780eb04f 100644
+index de29eb33..d780eb04 100644
 --- a/source/interface/attract_mode.c
 +++ b/source/interface/attract_mode.c
 @@ -163,6 +163,10 @@ const char *attract_mode_get_localized_movie_path(
@@ -1755,7 +1755,7 @@ index de29eb33e..d780eb04f 100644
  
  	return bss_00453ae8;
 diff --git a/source/interface/ui_widget.c b/source/interface/ui_widget.c
-index 23b6ada6f..71b3af140 100644
+index 23b6ada6..71b3af14 100644
 --- a/source/interface/ui_widget.c
 +++ b/source/interface/ui_widget.c
 @@ -4246,7 +4246,11 @@ void ui_start_main_menu_music(
@@ -1809,7 +1809,7 @@ index 23b6ada6f..71b3af140 100644
  	return;
  }
 diff --git a/source/interface/ui_widget_event_handler_functions.c b/source/interface/ui_widget_event_handler_functions.c
-index 252c4a456..33ec466ca 100644
+index 252c4a45..33ec466c 100644
 --- a/source/interface/ui_widget_event_handler_functions.c
 +++ b/source/interface/ui_widget_event_handler_functions.c
 @@ -931,6 +931,10 @@ symbols in this file:
@@ -1907,10 +1907,10 @@ index 252c4a456..33ec466ca 100644
  			console_warning("event handler '%s' failed", event_handler_function_list.names[(short)function_index]);
  		return result;
 diff --git a/source/main/main.c b/source/main/main.c
-index 8944621c7..736a3d910 100644
+index 9af8e6a8..46aeeb37 100644
 --- a/source/main/main.c
 +++ b/source/main/main.c
-@@ -1467,6 +1467,12 @@ static void main_new_map(
+@@ -1468,6 +1468,12 @@ static void main_new_map(
  	if (game_load(options))
  	{
  		game_initialize_for_new_map();
@@ -1923,7 +1923,7 @@ index 8944621c7..736a3d910 100644
  	}
  	else
  	{
-@@ -1475,7 +1481,19 @@ static void main_new_map(
+@@ -1476,7 +1482,19 @@ static void main_new_map(
  
  	if (!errors_handle())
  	{
@@ -1943,7 +1943,7 @@ index 8944621c7..736a3d910 100644
  		game_time_start();
  	}
  	else
-@@ -1483,6 +1501,12 @@ static void main_new_map(
+@@ -1484,6 +1502,12 @@ static void main_new_map(
  		error(_error_immediate, "main_new_map() failed.");
  	}
  	game_initial_pulse();
@@ -1956,7 +1956,7 @@ index 8944621c7..736a3d910 100644
  
  	main_globals.reset_map = FALSE;
  	main_globals.defer_map_change = FALSE;
-@@ -1498,8 +1522,28 @@ static void main_new_map(
+@@ -1499,8 +1523,28 @@ static void main_new_map(
  	main_globals.load_core_at_startup = FALSE;
  
  	if (main_globals.allow_persistent_storage)
@@ -1986,7 +1986,7 @@ index 8944621c7..736a3d910 100644
  	return;
  }
 diff --git a/source/memory/lruv_cache.c b/source/memory/lruv_cache.c
-index b02b3f50c..bb41b01df 100644
+index b02b3f50..bb41b01d 100644
 --- a/source/memory/lruv_cache.c
 +++ b/source/memory/lruv_cache.c
 @@ -221,6 +221,8 @@ void lruv_delete(
@@ -1999,7 +1999,7 @@ index b02b3f50c..bb41b01df 100644
  	cache->tick++;
  
 diff --git a/source/saved games/saved_game_files.c b/source/saved games/saved_game_files.c
-index 642d5945c..0009e4f4e 100644
+index 642d5945..0009e4f4 100644
 --- a/source/saved games/saved_game_files.c	
 +++ b/source/saved games/saved_game_files.c	
 @@ -765,6 +765,7 @@ boolean saved_game_file_retrieve_player1_last_used_profile_directory(
@@ -2057,7 +2057,7 @@ index 642d5945c..0009e4f4e 100644
  
  	map_name[MAXIMUM_FILENAME_LENGTH] = 0;
 diff --git a/source/shell/shell.c b/source/shell/shell.c
-index feb0b44fa..172c04f6f 100644
+index feb0b44f..172c04f6 100644
 --- a/source/shell/shell.c
 +++ b/source/shell/shell.c
 @@ -24,10 +24,12 @@ static boolean application_paused;
@@ -2084,7 +2084,7 @@ index feb0b44fa..172c04f6f 100644
  		game_state_initialize();
  		
 diff --git a/source/shell/shell_xbox.c b/source/shell/shell_xbox.c
-index 02695dec5..70d178135 100644
+index 02695dec..70d17813 100644
 --- a/source/shell/shell_xbox.c
 +++ b/source/shell/shell_xbox.c
 @@ -104,14 +104,20 @@ shell_idle(
@@ -2109,7 +2109,7 @@ index 02695dec5..70d178135 100644
  			shell_dispose();
  		}
 diff --git a/tools/android_imports.py b/tools/android_imports.py
-index 308fe1fa2..108488738 100644
+index 308fe1fa..10848873 100644
 --- a/tools/android_imports.py
 +++ b/tools/android_imports.py
 @@ -7,7 +7,7 @@ host's 64-bit function address from __host_import_table and branches to it.
@@ -2226,7 +2226,7 @@ index 308fe1fa2..108488738 100644
          table += [f"extern void {symbol(n)}(void);" for n in host_names]
          table += ["", "static const struct { const char *name; void *function; } imports[] =", "{"]
 diff --git a/tools/port_settings.py b/tools/port_settings.py
-index 4ccfb29eb..51c617c79 100644
+index 6e8028f8..66e89446 100644
 --- a/tools/port_settings.py
 +++ b/tools/port_settings.py
 @@ -52,23 +52,23 @@ SCREENS = {

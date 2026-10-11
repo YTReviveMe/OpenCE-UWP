@@ -233,13 +233,9 @@ uint32_t GUEST_ABI host_sdl_open_audio_stream(uint32_t device, const void *spec_
     wanted.channels = spec->channels; wanted.samples = 1024; wanted.callback = audio_callback; wanted.userdata = binding;
     binding->callback = callback; binding->userdata = userdata;
     if (!callback) {
-        wanted.callback = NULL;
-        wanted.userdata = NULL;
-        binding->device = SDL_OpenAudioDevice(NULL, 1, &wanted, &obtained, 0);
-        if (!binding->device) { free(binding); return 0; }
-        binding->capture = 1;
-        binding->handle = handle_new(HANDLE_AUDIO, binding);
-        return binding->handle;
+        SDL_Log("Microphone capture is unavailable in this UWP build");
+        free(binding);
+        return 0;
     }
     host_logf(HOST_LOG_INFO, "Xbox audio: requested %d Hz, %d channels, format %04x",
         spec->frequency, spec->channels, (unsigned)spec->format);

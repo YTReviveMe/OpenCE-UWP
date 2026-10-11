@@ -362,6 +362,7 @@ extern "C" int SDL_main(int, char **)
     env.entries.push_back("HOME=" + save_root);
     env.entries.push_back("HALO_DATA_ROOT=" + data_root);
     env.entries.push_back("HALO_SAVE_ROOT=" + save_root);
+    env.entries.push_back("HALO_VOICE_CHAT=off");
     env.entries.push_back("HALO_CONFIG_ROOT=" + winrt::to_string(writable_root.wstring()));
     env.entries.push_back("HALO_NET_BROKERS_FILE=" + winrt::to_string(
         (package_directory() / L"OpenCE" / L"network" / L"brokers.txt").wstring()));
