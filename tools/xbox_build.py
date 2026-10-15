@@ -228,6 +228,7 @@ def generate_xbox_build(n: Writer, sln: Any) -> None:
         objects.append(guest_object(source, flags))
     for source in sorted(Path(config["game_sources"]).glob("*.c")):
         objects.append(guest_object(source, game_cflags))
+    objects.append(guest_object(Path("port/third_party/stb_vorbis/stb_vorbis.c"), game_cflags))
 
     platform_cflags = " ".join([
         guest_abi, guest_code, "-std=gnu11", "-D_GNU_SOURCE",

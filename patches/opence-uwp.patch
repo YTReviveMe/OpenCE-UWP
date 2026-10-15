@@ -332,7 +332,7 @@ index 16bcbfd2..5f0f1aaf 100644
  
  #endif /* __HALO_LINUX_PREFIX_H */
 diff --git a/port/linux/include/halo_port_capacity.h b/port/linux/include/halo_port_capacity.h
-index a714302c..e0a5869f 100644
+index 93f480a0..e88f21c9 100644
 --- a/port/linux/include/halo_port_capacity.h
 +++ b/port/linux/include/halo_port_capacity.h
 @@ -46,7 +46,7 @@ measurement). The desktop builds' cache is 256 MB, half their 512 MB memory
@@ -354,7 +354,7 @@ index a714302c..e0a5869f 100644
  #else
  #define HALO_PORT_SOUND_CACHE_SIZE 0x1000000 /* (0x400000) */
 diff --git a/port/linux/src/d3d8_gl.c b/port/linux/src/d3d8_gl.c
-index 054aec19..77bcde03 100644
+index 9e260d75..c95fe8fa 100644
 --- a/port/linux/src/d3d8_gl.c
 +++ b/port/linux/src/d3d8_gl.c
 @@ -139,6 +139,7 @@ context exists */
@@ -374,7 +374,7 @@ index 054aec19..77bcde03 100644
  	/* display.screen_width, or 0 for the display's shape, which the app
  	passes (port/android/host/host_main.c) */
  	const char *display = getenv("HALO_DISPLAY_WIDTH");
-@@ -1375,6 +1376,7 @@ static GLuint framebuffer_find(GLuint color, GLuint depth, BOOL renderbuffers)
+@@ -1384,6 +1385,7 @@ static GLuint framebuffer_find(GLuint color, GLuint depth, BOOL renderbuffers)
  {
  	struct framebuffer_entry *entry, **link;
  	GLenum draw_buffer = color ? GL_COLOR_ATTACHMENT0 : GL_NONE;
@@ -382,7 +382,7 @@ index 054aec19..77bcde03 100644
  
  	/* (found, it moves to the front: each draw asks again for the one
  	the draw before it did) */
-@@ -1409,8 +1411,15 @@ static GLuint framebuffer_find(GLuint color, GLuint depth, BOOL renderbuffers)
+@@ -1418,8 +1420,15 @@ static GLuint framebuffer_find(GLuint color, GLuint depth, BOOL renderbuffers)
  			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
  	}
  	glDrawBuffers(1, &draw_buffer);
@@ -400,7 +400,7 @@ index 054aec19..77bcde03 100644
  	xgpu_gl_state_invalidate();
  	entry->next = framebuffers;
  	framebuffers = entry;
-@@ -1511,6 +1520,43 @@ static void render_target_multisample(struct xgpu_render_target *target, int sam
+@@ -1520,6 +1529,43 @@ static void render_target_multisample(struct xgpu_render_target *target, int sam
  	xgpu_gl_state_invalidate();
  }
  
@@ -444,7 +444,7 @@ index 054aec19..77bcde03 100644
  /* counts draws and clears into render targets (xgpu_render_target.written) */
  static unsigned long render_target_write_serial;
  
-@@ -1572,13 +1618,53 @@ static BOOL bind_targets(BOOL *has_depth)
+@@ -1581,13 +1627,53 @@ static BOOL bind_targets(BOOL *has_depth)
  		render_target_multisample(&depth->target, samples);
  	if (samples)
  	{
@@ -505,7 +505,7 @@ index 054aec19..77bcde03 100644
  	}
  	else
  	{
-@@ -1757,6 +1843,15 @@ static void anti_aliasing_prepare(void)
+@@ -1788,6 +1874,15 @@ static void anti_aliasing_prepare(void)
  		platform_log("anti-aliasing: the GPU has at most %d samples a pixel", (int)anti_aliasing_maximum_samples);
  		anti_aliasing_samples = anti_aliasing_maximum_samples < 2 ? 0 : anti_aliasing_maximum_samples;
  	}
@@ -521,7 +521,7 @@ index 054aec19..77bcde03 100644
  	if ((mode == _anti_aliasing_fxaa || mode == _anti_aliasing_smaa) && !xgpu_post_prepare(mode == _anti_aliasing_smaa))
  		platform_log("anti-aliasing: its programs do not build, so the 3D view is not antialiased");
  	xgpu_gl_state_invalidate();
-@@ -2049,7 +2144,7 @@ long halo_screen_commit(void)
+@@ -2080,7 +2175,7 @@ long halo_screen_commit(void)
  		screen_width = width;
  		screen_scale[0] = scale[0];
  		screen_scale[1] = scale[1];
@@ -556,7 +556,7 @@ index fd79da2a..b04f34e5 100644
  		data = file_read(path, &size);
  		if (data)
 diff --git a/port/linux/src/p2p.c b/port/linux/src/p2p.c
-index bbf2a9b2..deb548a4 100644
+index 13896ae6..de566caf 100644
 --- a/port/linux/src/p2p.c
 +++ b/port/linux/src/p2p.c
 @@ -77,6 +77,10 @@ enum
@@ -570,7 +570,7 @@ index bbf2a9b2..deb548a4 100644
  	/* the packets received out of order that are still taken */
  	REPLAY_WINDOW = 64,
  
-@@ -289,6 +293,23 @@ struct stun_server
+@@ -291,6 +295,23 @@ struct stun_server
  
  pthread_mutex_t p2p_lock = PTHREAD_MUTEX_INITIALIZER;
  
@@ -594,7 +594,7 @@ index bbf2a9b2..deb548a4 100644
  #ifdef HALO_PROFILE
  /* the p2p thread's own track of the profiling build's recording
  (profile_trace.c): profile.c's sections are the game thread's alone */
-@@ -1741,47 +1762,48 @@ int p2p_broadcast_targets(unsigned short port, unsigned long *addresses, unsigne
+@@ -1782,47 +1803,48 @@ int p2p_broadcast_targets(unsigned short port, unsigned long *addresses, unsigne
  static void datagram_send(struct peer *peer, unsigned short source_port, unsigned short port, const void *data,
  	int size);
  
@@ -673,7 +673,7 @@ index bbf2a9b2..deb548a4 100644
  }
  
  int p2p_peer_address(const unsigned char *peer_identifier, unsigned long *address)
-@@ -1920,6 +1942,48 @@ static void datagram_send(struct peer *peer, unsigned short source_port, unsigne
+@@ -1961,6 +1983,48 @@ static void datagram_send(struct peer *peer, unsigned short source_port, unsigne
  	peer_send(peer, inner, size + 5);
  }
  
@@ -722,7 +722,7 @@ index bbf2a9b2..deb548a4 100644
  /* a datagram from the game to a peer, through its stand-in (from a socket
  connected to it, or not bound yet: p2p_send_datagram sends the rest) */
  static void proxy_readable(struct proxy *proxy)
-@@ -1927,7 +1991,7 @@ static void proxy_readable(struct proxy *proxy)
+@@ -1968,7 +2032,7 @@ static void proxy_readable(struct proxy *proxy)
  	unsigned char data[MAXIMUM_INNER_SIZE - 5];
  	int count;
  
@@ -731,7 +731,7 @@ index bbf2a9b2..deb548a4 100644
  	{
  		struct sockaddr_in from;
  		int from_length = sizeof(from);
-@@ -2349,7 +2413,7 @@ static void tunnel_readable(void)
+@@ -2390,7 +2454,7 @@ static void tunnel_readable(void)
  	unsigned char packet[2048];
  	int count;
  
@@ -740,23 +740,24 @@ index bbf2a9b2..deb548a4 100644
  	{
  		struct sockaddr_in from;
  		int from_length = sizeof(from);
-@@ -3124,7 +3188,7 @@ static void *p2p_thread(void *unused)
+@@ -3165,7 +3229,7 @@ static void *p2p_thread(void *unused)
  		int asked_read_count, asked_write_count;
  		/* KCP's clock needs a pass every LOOP_INTERVAL while it carries
  		streams; otherwise the thread can sleep longer */
 -		int wait = webrtc_busy ? LOOP_INTERVAL : LOOP_INTERVAL * 5;
 +		int wait = LOOP_INTERVAL;
  		int index, asked;
+ 		unsigned long waited;
  
- 		/* what to wait for */
-@@ -3195,6 +3259,7 @@ static void *p2p_thread(void *unused)
- #ifdef HALO_PROFILE
- 		profile_trace_begin(p2p_profile_names.pass);
- #endif
+@@ -3246,6 +3310,8 @@ static void *p2p_thread(void *unused)
+ 			read_count = write_count = 0;
+ 		}
+ 
 +		outgoing_datagrams_send();
- 
++
  		/* what is ready (the lists now hold only ready sockets, in the order
  		asked, so each one's owner is found going along both); a socket
+ 		closed meanwhile is not its owner's any more */
 diff --git a/port/linux/src/p2p_lobby.c b/port/linux/src/p2p_lobby.c
 index 105d7a08..0217fc8f 100644
 --- a/port/linux/src/p2p_lobby.c
@@ -771,7 +772,7 @@ index 105d7a08..0217fc8f 100644
  	game->sequence = listing->sequence;
  	game->heard_time = p2p_now();
 diff --git a/port/linux/src/p2p_signal.c b/port/linux/src/p2p_signal.c
-index 426f1eee..a15ff628 100644
+index bb6f98c3..2eaac6f1 100644
 --- a/port/linux/src/p2p_signal.c
 +++ b/port/linux/src/p2p_signal.c
 @@ -435,6 +435,9 @@ static void make_topic(const unsigned char *token, const char *label, const unsi
@@ -818,7 +819,7 @@ index a62eaf67..f623fe47 100644
  the window (port/android/include/halo_android_abi.h), and the web build's
  WebAssembly memory ends with it (tools/web_build.py) */
 diff --git a/port/linux/src/port_config.c b/port/linux/src/port_config.c
-index dc255533..6ab6db81 100644
+index 94e390a5..41f549ab 100644
 --- a/port/linux/src/port_config.c
 +++ b/port/linux/src/port_config.c
 @@ -76,6 +76,12 @@ Ctrl+D, which moving and crouching would press, from the browser) */
@@ -1580,7 +1581,7 @@ index 82df18a2..2c1f3451 100644
  				terminal_printf(global_real_argb_white, "%s", string);
  			}
 diff --git a/source/cutscene/cinematics.c b/source/cutscene/cinematics.c
-index 26d9f895..26b8c6a4 100644
+index ab5c78ae..0943e590 100644
 --- a/source/cutscene/cinematics.c
 +++ b/source/cutscene/cinematics.c
 @@ -236,7 +236,7 @@ void cinematic_suppress_bsp_object_creation(
@@ -1755,7 +1756,7 @@ index de29eb33..d780eb04 100644
  
  	return bss_00453ae8;
 diff --git a/source/interface/ui_widget.c b/source/interface/ui_widget.c
-index 23b6ada6..71b3af14 100644
+index 33d92515..70e66352 100644
 --- a/source/interface/ui_widget.c
 +++ b/source/interface/ui_widget.c
 @@ -4246,7 +4246,11 @@ void ui_start_main_menu_music(
@@ -1782,7 +1783,7 @@ index 23b6ada6..71b3af14 100644
  			scripted_looping_sound_stop(sound_definition_index);
  		}
  		else
-@@ -4895,9 +4903,17 @@ static void perform_filesystem_initialization(
+@@ -4892,9 +4900,17 @@ static void perform_filesystem_initialization(
  		"c:\\halo\\SOURCE\\interface\\ui_widget.c",
  		5439,
  		widget_globals.initialization_thread==NULL);
@@ -1800,7 +1801,7 @@ index 23b6ada6..71b3af14 100644
  	if (!create_thread(0, filesystem_initialization_thread_proc, NULL, &widget_globals.initialization_thread))
  	{
  		error(_error_silent, "failed to spawn thread for filesystem checks - running synchronously!");
-@@ -4905,6 +4921,7 @@ static void perform_filesystem_initialization(
+@@ -4902,6 +4918,7 @@ static void perform_filesystem_initialization(
  		filesystem_initialization_thread_proc(NULL);
  		ui_widgets_inhibit_processing(FALSE);
  	}
@@ -1907,7 +1908,7 @@ index 252c4a45..33ec466c 100644
  			console_warning("event handler '%s' failed", event_handler_function_list.names[(short)function_index]);
  		return result;
 diff --git a/source/main/main.c b/source/main/main.c
-index 9af8e6a8..46aeeb37 100644
+index f6ce6338..614c871e 100644
 --- a/source/main/main.c
 +++ b/source/main/main.c
 @@ -1468,6 +1468,12 @@ static void main_new_map(
@@ -2057,10 +2058,10 @@ index 642d5945..0009e4f4 100644
  
  	map_name[MAXIMUM_FILENAME_LENGTH] = 0;
 diff --git a/source/shell/shell.c b/source/shell/shell.c
-index feb0b44f..172c04f6 100644
+index 260d6135..6f37a78e 100644
 --- a/source/shell/shell.c
 +++ b/source/shell/shell.c
-@@ -24,10 +24,12 @@ static boolean application_paused;
+@@ -25,10 +25,12 @@ static boolean application_paused;
  boolean shell_initialize(
  	void)
  {
@@ -2073,16 +2074,16 @@ index feb0b44f..172c04f6 100644
  	platform_initialized = shell_platform_initialize();
  	
  	if (platform_initialized)
-@@ -35,7 +37,9 @@ boolean shell_initialize(
+@@ -36,7 +38,9 @@ boolean shell_initialize(
  		boolean rasterizer_initialized;
  		
  		errors_initialize();
 +		host_log(4, "guest: errors initialized");
  		tag_files_open();
 +		host_log(4, "guest: tag files opened");
- 		real_math_initialize();
- 		game_state_initialize();
- 		
+ 		/* port: Custom Edition maps live in custom_maps, beside maps.
+ 		Make that folder when this launch does not already have it. */
+ 		directory_create("custom_maps");
 diff --git a/source/shell/shell_xbox.c b/source/shell/shell_xbox.c
 index 02695dec..70d17813 100644
 --- a/source/shell/shell_xbox.c
