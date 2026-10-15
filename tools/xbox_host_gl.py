@@ -66,10 +66,84 @@ def main():
         "int GUEST_ABI host_gl_has_extension(const char *name) { (void)name; return 0; }",
         "uint32_t GUEST_ABI host_gl_read_buffer(uint32_t buffer, uint32_t offset) { (void)buffer; (void)offset; return 0; }",
         "uint32_t GUEST_ABI host_gl_read_buffer_word(uint32_t buffer, uint32_t offset) { (void)buffer; (void)offset; return 0; }",
-        "void GUEST_ABI host_gl_buffer_write(uint32_t target,uint32_t offset,uint32_t size,const void *data) { typedef void(APIENTRY*p_t)(GLenum,GLintptr,GLsizeiptr,const void*); static p_t p; if(!p)p=(p_t)SDL_GL_GetProcAddress(\"glBufferSubData\"); if(p)p(target,offset,size,data); }",
-        "void GUEST_ABI host_gl_fence_frame(uint32_t slot) { (void)slot; }",
-        "void GUEST_ABI host_gl_wait_frame(uint32_t slot) { (void)slot; }",
     ]
+    lines += r'''
+static GLsync frame_fences[3];
+static void *(APIENTRY *map_buffer_range)(GLenum, GLintptr, GLsizeiptr, GLbitfield);
+static GLboolean (APIENTRY *unmap_buffer)(GLenum);
+static GLsync (APIENTRY *fence_sync)(GLenum, GLbitfield);
+static GLenum (APIENTRY *client_wait_sync)(GLsync, GLbitfield, GLuint64);
+static void (APIENTRY *delete_sync)(GLsync);
+static void (APIENTRY *buffer_sub_data)(GLenum, GLintptr, GLsizeiptr, const void *);
+static void (APIENTRY *finish_stream)(void);
+static int stream_initialized, unsynchronized_stream_safe;
+
+static void stream_initialize(void)
+{
+    if (stream_initialized) return;
+    stream_initialized = 1;
+    map_buffer_range = (void *)SDL_GL_GetProcAddress("glMapBufferRange");
+    unmap_buffer = (void *)SDL_GL_GetProcAddress("glUnmapBuffer");
+    fence_sync = (void *)SDL_GL_GetProcAddress("glFenceSync");
+    client_wait_sync = (void *)SDL_GL_GetProcAddress("glClientWaitSync");
+    delete_sync = (void *)SDL_GL_GetProcAddress("glDeleteSync");
+    buffer_sub_data = (void *)SDL_GL_GetProcAddress("glBufferSubData");
+    finish_stream = (void *)SDL_GL_GetProcAddress("glFinish");
+    unsynchronized_stream_safe = map_buffer_range && unmap_buffer && fence_sync &&
+        client_wait_sync && delete_sync && finish_stream;
+    SDL_Log("UWP mapped streaming: %s", unsynchronized_stream_safe ? "enabled" : "fallback");
+}
+
+static void stream_disable(void)
+{
+    unsigned slot;
+    if (finish_stream) finish_stream();
+    for (slot = 0; slot < 3; ++slot) {
+        if (frame_fences[slot]) delete_sync(frame_fences[slot]);
+        frame_fences[slot] = NULL;
+    }
+    unsynchronized_stream_safe = 0;
+    SDL_Log("UWP mapped streaming: synchronization fallback");
+}
+
+void GUEST_ABI host_gl_buffer_write(uint32_t target, uint32_t offset, uint32_t size, const void *data)
+{
+    void *mapping = NULL;
+    if (!size) return;
+    stream_initialize();
+    if (unsynchronized_stream_safe)
+        mapping = map_buffer_range(target, offset, size, GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+    if (mapping) {
+        memcpy(mapping, data, size);
+        if (unmap_buffer(target)) return;
+        stream_disable();
+    }
+    if (buffer_sub_data) buffer_sub_data(target, offset, size, data);
+}
+
+void GUEST_ABI host_gl_fence_frame(uint32_t slot)
+{
+    stream_initialize();
+    if (!unsynchronized_stream_safe || slot >= 3) return;
+    if (frame_fences[slot]) delete_sync(frame_fences[slot]);
+    frame_fences[slot] = fence_sync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    if (!frame_fences[slot]) stream_disable();
+}
+
+void GUEST_ABI host_gl_wait_frame(uint32_t slot)
+{
+    GLenum result;
+    stream_initialize();
+    if (!unsynchronized_stream_safe || slot >= 3 || !frame_fences[slot]) return;
+    result = client_wait_sync(frame_fences[slot], GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ull);
+    if (result != GL_ALREADY_SIGNALED && result != GL_CONDITION_SATISFIED) {
+        stream_disable();
+        return;
+    }
+    delete_sync(frame_fences[slot]);
+    frame_fences[slot] = NULL;
+}
+'''.splitlines()
     with open(output, "w", encoding="utf-8") as out:
         out.write("\n".join(lines) + "\n")
 

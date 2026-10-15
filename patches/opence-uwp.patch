@@ -1357,7 +1357,7 @@ index 00a408a6..ce3e1997 100644
  		CloseHandle(self->source_file);
  		self->source_file = NULL;
 diff --git a/source/cache/cache_files_windows.c b/source/cache/cache_files_windows.c
-index 995e834f..4a1bfed6 100644
+index 995e834f..ca37ca8c 100644
 --- a/source/cache/cache_files_windows.c
 +++ b/source/cache/cache_files_windows.c
 @@ -194,6 +194,14 @@ symbols in this file:
@@ -1375,7 +1375,39 @@ index 995e834f..4a1bfed6 100644
  /* ---------- constants */
  
  enum
-@@ -619,12 +627,18 @@ boolean cache_files_precache_map_begin(
+@@ -394,6 +402,31 @@ static void cached_map_files_delete(
+ 	short map_file_index);
+ static void cache_files_verify_language(
+ 	void);
++#ifdef HALO_XBOX_UWP
++static boolean cached_map_tag_signature_valid(struct cached_map_file *map_file)
++{
++	__declspec(align(512)) unsigned long sector[128];
++	OVERLAPPED overlapped;
++	volatile boolean completed = FALSE;
++	unsigned long signature_offset;
++	unsigned long sector_offset;
++	struct cache_file_header *header = &map_file->header;
++
++	if (header->tag_data_offset < sizeof(*header) ||
++		header->tag_data_size < sizeof(struct cache_file_tag_header) ||
++		header->file_length < header->tag_data_offset ||
++		header->tag_data_size > header->file_length - header->tag_data_offset)
++		return FALSE;
++	signature_offset = (unsigned long)header->tag_data_offset +
++		offsetof(struct cache_file_tag_header, signature);
++	sector_offset = signature_offset & ~511UL;
++	cached_map_issue_async_read(map_file->file, &overlapped, sector, sizeof(sector),
++		sector_offset, &completed, cache_file_blocking_io_completion_routine);
++	cached_map_block_on_async_request(&completed);
++	return completed == TRUE && sector[(signature_offset - sector_offset) / sizeof(unsigned long)] == 'tags';
++}
++#endif
++
+ static void cache_files_open_cache_files(
+ 	void);
+ static void CALLBACK cache_file_read_io_completion_routine(
+@@ -619,12 +652,18 @@ boolean cache_files_precache_map_begin(
  
  		if (cache_file_read_header_from_dvd(cache_map_name, &header))
  		{
@@ -1396,7 +1428,7 @@ index 995e834f..4a1bfed6 100644
  
  			/* port: the cache file slots are found by the name in their
  			header (cached_map_files_find_map): a map file whose header names
-@@ -657,7 +671,9 @@ boolean cache_files_precache_map_begin(
+@@ -657,7 +696,9 @@ boolean cache_files_precache_map_begin(
  
  				return FALSE;
  			}
@@ -1406,7 +1438,7 @@ index 995e834f..4a1bfed6 100644
  			map_file = cached_map_file_get(map_file_index);
  
  			memset(
-@@ -673,6 +689,37 @@ boolean cache_files_precache_map_begin(
+@@ -673,6 +714,37 @@ boolean cache_files_precache_map_begin(
  			cache_file_globals.copying_to_map_file_name[
  				sizeof(cache_file_globals.copying_to_map_file_name) - 1] = 0;
  			cache_file_get_map_path(cache_map_name, path);
@@ -1444,7 +1476,7 @@ index 995e834f..4a1bfed6 100644
  			error(_error_silent, "starting precaching of map '%s'", cache_map_name);
  			cache_copy_begin(
  				buffer,
-@@ -680,6 +727,7 @@ boolean cache_files_precache_map_begin(
+@@ -680,6 +752,7 @@ boolean cache_files_precache_map_begin(
  				cached_map_file_get_handle(map_file_index),
  				cached_map_file_get_size(map_file_index),
  				path);
@@ -1452,7 +1484,7 @@ index 995e834f..4a1bfed6 100644
  		}
  		else
  		{
-@@ -700,6 +748,8 @@ boolean cache_files_precache_map_begin(
+@@ -700,6 +773,8 @@ boolean cache_files_precache_map_begin(
  void cache_files_initialize(
  	void)
  {
@@ -1461,7 +1493,7 @@ index 995e834f..4a1bfed6 100644
  	cache_file_globals.open_map_file_index = NONE;
  	cache_file_globals.requests = match_malloc(
  		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
-@@ -714,9 +764,15 @@ void cache_files_initialize(
+@@ -714,9 +789,15 @@ void cache_files_initialize(
  	(port/linux/game/custom_edition_cache.c) */
  	memset(cache_file_globals.requests, 0, MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS * sizeof(struct cache_file_request));
  	cache_file_windows_thread_create();
@@ -1477,7 +1509,7 @@ index 995e834f..4a1bfed6 100644
  
  	return;
  }
-@@ -1019,6 +1075,7 @@ static void cache_files_verify_language(
+@@ -1019,6 +1100,7 @@ static void cache_files_verify_language(
  static void cache_files_open_cache_files(
  	void)
  {
@@ -1485,7 +1517,7 @@ index 995e834f..4a1bfed6 100644
  	struct cache_file_header blank_header;
  	struct cache_file_header dvd_header;
  	char path[256];
-@@ -1040,6 +1097,7 @@ static void cache_files_open_cache_files(
+@@ -1040,6 +1122,7 @@ static void cache_files_open_cache_files(
  		valid = FALSE;
  		cached_map_file_get_path(map_file_index, path);
  		size = cached_map_file_get_size(map_file_index);
@@ -1493,7 +1525,7 @@ index 995e834f..4a1bfed6 100644
  		file = CreateFileA(
  			path,
  			GENERIC_READ | GENERIC_WRITE,
-@@ -1050,8 +1108,12 @@ static void cache_files_open_cache_files(
+@@ -1050,8 +1133,12 @@ static void cache_files_open_cache_files(
  			NULL);
  		if (file != INVALID_HANDLE_VALUE)
  		{
@@ -1508,7 +1540,25 @@ index 995e834f..4a1bfed6 100644
  			{
  				valid = TRUE;
  			}
-@@ -1282,11 +1344,13 @@ static boolean cache_file_read_header_from_dvd(
+@@ -1115,7 +1202,17 @@ static void cache_files_open_cache_files(
+ 				map_file->header.checksum == dvd_header.checksum &&
+ 				valid)
+ 			{
++#ifdef HALO_XBOX_UWP
++				if (!cached_map_tag_signature_valid(map_file))
++				{
++					platform_log("cache: invalid tag data in slot %d (%s); rebuilding on demand",
++						map_file_index, cache_map_name);
++				}
++				else
++#endif
++				{
+ 				continue;
++				}
+ 			}
+ 		}
+ 
+@@ -1282,11 +1379,13 @@ static boolean cache_file_read_header_from_dvd(
  	const char *map_name,
  	struct cache_file_header *header)
  {
@@ -1522,7 +1572,7 @@ index 995e834f..4a1bfed6 100644
  	file = CreateFileA(
  		path,
  		GENERIC_READ,
-@@ -1312,6 +1376,7 @@ static boolean cache_file_read_header_from_dvd(
+@@ -1312,6 +1411,7 @@ static boolean cache_file_read_header_from_dvd(
  		}
  		CloseHandle(file);
  	}
